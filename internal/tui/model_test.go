@@ -1433,6 +1433,34 @@ func TestTheBoardsLegendExplainsOnlyTheDeparturesInView(t *testing.T) {
 	h.wantOnScreen("+7 = 7 min late")
 }
 
+func TestTheBoardsStatusLineStaysAsItsLegendChanges(t *testing.T) {
+	for _, width := range []int{48, 49, 50} {
+		h := newHarness(t, gentID, aarlenID)
+		board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+		for i := range 30 {
+			d := irail.Departure{Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Platform: "11", Train: fmt.Sprintf("IC %d", 535+i)}
+			switch {
+			case i == 0:
+				d.Delay, d.Platform, d.PlatformChanged = 2*time.Minute, "1", true
+			case i >= 20:
+				d.Delay, d.Platform, d.PlatformChanged = 15*time.Minute, "12", true
+			}
+			board.Departures = append(board.Departures, d)
+		}
+		h.src.board = &board
+		h.send(tea.WindowSizeMsg{Width: width, Height: 20})
+		h.press(letter('d'))
+
+		for range 29 {
+			h.press(down)
+		}
+
+		if !strings.Contains(h.screen(), "Live NMBS data via iRail") {
+			t.Errorf("at %d columns the status line ran off the frame:\n%s", width, h.screen())
+		}
+	}
+}
+
 func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.src.departures = 3
