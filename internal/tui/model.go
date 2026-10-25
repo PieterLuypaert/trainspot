@@ -31,6 +31,9 @@ type Config struct {
 	From, To string
 	// Remember saves a trip so that the next start opens on it.
 	Remember func(fromID, toID string) error
+	// TickEvery is how often the screen updates its clock and checks
+	// whether to refresh; 15 seconds when zero.
+	TickEvery time.Duration
 }
 
 type screen int
@@ -100,13 +103,17 @@ func New(cfg Config) Model {
 
 func (m Model) Init() tea.Cmd {
 	if m.screen == journeys {
-		return tea.Batch(m.fetchTrip(), tick())
+		return tea.Batch(m.fetchTrip(), m.tick())
 	}
-	return tick()
+	return m.tick()
 }
 
-func tick() tea.Cmd {
-	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
+func (m Model) tick() tea.Cmd {
+	every := m.cfg.TickEvery
+	if every == 0 {
+		every = tickEvery
+	}
+	return tea.Tick(every, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -149,17 +156,17 @@ func (m Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // refresh fetches what is on screen again once refreshEvery has passed.
 func (m Model) refresh() (tea.Model, tea.Cmd) {
 	if m.loading || m.cfg.Now().Sub(m.fetched) < refreshEvery {
-		return m, tick()
+		return m, m.tick()
 	}
 	switch m.screen {
 	case journeys:
 		m.loading = true
-		return m, tea.Batch(m.fetchTrip(), tick())
+		return m, tea.Batch(m.fetchTrip(), m.tick())
 	case departures:
 		m.loading = true
-		return m, tea.Batch(m.fetchBoard(), tick())
+		return m, tea.Batch(m.fetchBoard(), m.tick())
 	}
-	return m, tick()
+	return m, m.tick()
 }
 
 func (m Model) planningKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {

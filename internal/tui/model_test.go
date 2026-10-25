@@ -92,29 +92,33 @@ func newHarness(t *testing.T, from, to string) *harness {
 			h.remembered = append(h.remembered, fromID+">"+toID)
 			return nil
 		},
+		TickEvery: time.Nanosecond,
 	})
 	h.send(tea.WindowSizeMsg{Width: 90, Height: 30})
-	for _, msg := range run(h.m.Init()) {
+	for _, msg := range run(t, h.m.Init()) {
 		h.send(msg)
 	}
 	return h
 }
 
 // send updates the model and runs the commands it returns, feeding their
-// messages back in. Commands that do not answer quickly, such as the
-// refresh tick, are left alone.
+// messages back in. Ticks come back at once in tests and are dropped, so
+// a test sends a tick itself when it wants one.
 func (h *harness) send(msg tea.Msg) {
 	h.t.Helper()
 	next, cmd := h.m.Update(msg)
 	h.m = next.(Model)
-	for _, m := range run(cmd) {
-		if _, quit := m.(tea.QuitMsg); !quit {
+	for _, m := range run(h.t, cmd) {
+		switch m.(type) {
+		case tea.QuitMsg, tickMsg:
+		default:
 			h.send(m)
 		}
 	}
 }
 
-func run(cmd tea.Cmd) []tea.Msg {
+func run(t *testing.T, cmd tea.Cmd) []tea.Msg {
+	t.Helper()
 	if cmd == nil {
 		return nil
 	}
@@ -125,12 +129,13 @@ func run(cmd tea.Cmd) []tea.Msg {
 		if batch, ok := msg.(tea.BatchMsg); ok {
 			var msgs []tea.Msg
 			for _, c := range batch {
-				msgs = append(msgs, run(c)...)
+				msgs = append(msgs, run(t, c)...)
 			}
 			return msgs
 		}
 		return []tea.Msg{msg}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(5 * time.Second):
+		t.Fatal("a command did not answer within 5 seconds")
 		return nil
 	}
 }
@@ -357,7 +362,7 @@ func TestQuits(t *testing.T) {
 			next, cmd = h.m.Update(k)
 			h.m = next.(Model)
 		}
-		if msgs := run(cmd); len(msgs) != 1 || msgs[0] != (tea.QuitMsg{}) {
+		if msgs := run(t, cmd); len(msgs) != 1 || msgs[0] != (tea.QuitMsg{}) {
 			t.Errorf("%s: got %v, want quit", name, msgs)
 		}
 	}

@@ -107,7 +107,7 @@ func TestJourneysNameLongChangesInHoursAndTheDayAtNight(t *testing.T) {
 	out := renderJourneys([]irail.Journey{j, tomorrow}, 100)
 
 	night := strings.Fields(strings.SplitN(block(t, out, "23:03"), "\n", 2)[0])
-	if !strings.Contains(out, "change 3h19") || strings.Join(night[:4], " ") != "23:03 → 07:22 8h19" {
+	if !strings.Contains(out, "change 3h19") || len(night) < 4 || strings.Join(night[:4], " ") != "23:03 → 07:22 8h19" {
 		t.Errorf("long change or night journey:\n%s", out)
 	}
 	if !strings.Contains(out, "  Mon 26 Oct  06:00 → 10:00") {
