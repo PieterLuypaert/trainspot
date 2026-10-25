@@ -255,6 +255,15 @@ func TestHelpFitsAnEightyColumnTerminal(t *testing.T) {
 	}
 }
 
+func TestTripPathFollowsXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "/Users/me")
+
+	if got := userPath("XDG_CONFIG_HOME", ".config", "trip.json"); got != "/Users/me/.config/trainspot/trip.json" {
+		t.Errorf("trip path = %q", got)
+	}
+}
+
 func TestParseArgs(t *testing.T) {
 	cases := []struct {
 		args    []string

@@ -47,6 +47,16 @@ func (d *Directory) Len() int {
 	return len(d.stations)
 }
 
+// ByID finds a station by its iRail id, such as BE.NMBS.008892007.
+func (d *Directory) ByID(id string) (Station, bool) {
+	for _, s := range d.stations {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return Station{}, false
+}
+
 type ranked struct {
 	station Station
 	score   int

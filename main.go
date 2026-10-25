@@ -18,17 +18,20 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/PieterLuypaert/trainspot/internal/board"
 	"github.com/PieterLuypaert/trainspot/internal/irail"
 	"github.com/PieterLuypaert/trainspot/internal/stations"
+	"github.com/PieterLuypaert/trainspot/internal/tui"
 )
 
 const usage = `trainspot shows live NMBS departures and journeys for any station in Belgium.
 
 Usage:
+  trainspot                            plan a trip on a full screen
   trainspot <station>                  departures from a station
   trainspot <station> --to <station>   journeys from one station to another
 
@@ -48,6 +51,9 @@ Options:
 
 Station names work in Dutch, French, English and German, with or without
 accents. When a name fits several stations, trainspot asks which one.
+
+The full screen remembers the last trip and opens on it the next time. It
+needs a terminal; without one, trainspot prints this help instead.
 `
 
 // version is set at build time with -ldflags "-X main.version=v1.2.3".
@@ -77,7 +83,7 @@ func main() {
 	case o.version:
 		fmt.Println("trainspot " + appVersion())
 		return
-	case o.query == "":
+	case o.query == "" && !(term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())):
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
@@ -98,6 +104,10 @@ func main() {
 		interactive: term.IsTerminal(os.Stdin.Fd()),
 		width:       terminalWidth(),
 		cachePath:   cachePath(),
+		tripPath:    userPath("XDG_CONFIG_HOME", ".config", "trip.json"),
+	}
+	if o.query == "" {
+		os.Exit(a.runScreen(context.Background(), o))
 	}
 	os.Exit(a.run(context.Background(), o))
 }
@@ -186,18 +196,23 @@ func appVersion() string {
 	return "dev"
 }
 
-// cachePath follows the XDG spec, which ignores a relative XDG_CACHE_HOME.
-// Without a home folder, as under some service managers, the list goes to
-// the temporary folder rather than stopping trainspot.
 func cachePath() string {
-	dir := os.Getenv("XDG_CACHE_HOME")
+	return userPath("XDG_CACHE_HOME", ".cache", "stations.json")
+}
+
+// userPath follows the XDG spec: the folder in env, or fallback in the home
+// folder when env is unset or relative, as the spec says to ignore that.
+// Without a home folder, as under some service managers, it uses the
+// temporary folder rather than stopping trainspot.
+func userPath(env, fallback, name string) string {
+	dir := os.Getenv(env)
 	if !filepath.IsAbs(dir) {
 		dir = os.TempDir()
 		if home, err := os.UserHomeDir(); err == nil {
-			dir = filepath.Join(home, ".cache")
+			dir = filepath.Join(home, fallback)
 		}
 	}
-	return filepath.Join(dir, "trainspot", "stations.json")
+	return filepath.Join(dir, "trainspot", name)
 }
 
 func terminalWidth() int {
@@ -213,6 +228,7 @@ func terminalWidth() int {
 type app struct {
 	client    *irail.Client
 	cachePath string
+	tripPath  string
 	now       func() time.Time
 	// answers reads what the user types into the picker; one scanner for
 	// the whole run, since a second one could miss lines the first buffered.
@@ -221,6 +237,33 @@ type app struct {
 	errOut      io.Writer
 	interactive bool
 	width       int
+}
+
+// runScreen opens the full-screen trip planner on the last trip.
+func (a app) runScreen(ctx context.Context, o options) int {
+	dir, err := stations.Load(ctx, a.client, a.cachePath, a.now(), a.errOut)
+	if err != nil {
+		return a.fail(err)
+	}
+	last, err := tui.LoadLastTrip(a.tripPath)
+	if err != nil {
+		fmt.Fprintf(a.errOut, "trainspot: starting without the last trip: %v\n", err)
+	}
+	screen := tui.New(tui.Config{
+		Source: a.client, Stations: dir, Lang: o.lang, Location: brussels, Now: a.now,
+		From: last.From, To: last.To,
+		Remember: func(fromID, toID string) error {
+			return tui.SaveLastTrip(a.tripPath, tui.LastTrip{From: fromID, To: toID})
+		},
+	})
+	var programOptions []tea.ProgramOption
+	if o.noColor {
+		programOptions = append(programOptions, tea.WithColorProfile(colorprofile.ASCII))
+	}
+	if _, err := tea.NewProgram(screen, programOptions...).Run(); err != nil {
+		return a.fail(fmt.Errorf("the trip screen stopped: %w", err))
+	}
+	return 0
 }
 
 func (a app) run(ctx context.Context, o options) int {

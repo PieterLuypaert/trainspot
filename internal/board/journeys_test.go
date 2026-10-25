@@ -62,8 +62,8 @@ func TestJourneysSummariseEachWayToTravel(t *testing.T) {
 			t.Errorf("journey lacks %q:\n%s", want, b)
 		}
 	}
-	if !strings.Contains(block(t, out, "15:46"), "15:46 → 19:10   3h24   direct") {
-		t.Errorf("direct journey:\n%s", out)
+	if !strings.Contains(block(t, out, "15:46"), "15:46 → 19:10         3h24   direct") {
+		t.Errorf("the direct journey's duration should line up with the one above:\n%s", out)
 	}
 	if !strings.Contains(out, "Live NMBS data via iRail, updated 14:51") {
 		t.Errorf("source line should give iRail's time:\n%s", out)
@@ -106,11 +106,12 @@ func TestJourneysNameLongChangesInHoursAndTheDayAtNight(t *testing.T) {
 
 	out := renderJourneys([]irail.Journey{j, tomorrow}, 100)
 
-	if !strings.Contains(out, "change 3h19") || !strings.Contains(block(t, out, "23:03"), "23:03 → 07:22   8h19") {
+	night := strings.Fields(strings.SplitN(block(t, out, "23:03"), "\n", 2)[0])
+	if !strings.Contains(out, "change 3h19") || len(night) < 4 || strings.Join(night[:4], " ") != "23:03 → 07:22 8h19" {
 		t.Errorf("long change or night journey:\n%s", out)
 	}
-	if !strings.Contains(out, "  Mon 26 Oct  06:00 → 10:00") {
-		t.Errorf("tomorrow's journey does not name its day:\n%s", out)
+	if !strings.Contains(out, "  06:00 → 10:00   4h00   direct   Mon 26 Oct") {
+		t.Errorf("tomorrow's journey does not name its day at the end:\n%s", out)
 	}
 }
 
@@ -187,5 +188,38 @@ func TestJourneysFitNarrowTerminals(t *testing.T) {
 func TestJourneysSaySoWhenThereAreNone(t *testing.T) {
 	if out := renderJourneys(nil, 80); !strings.Contains(out, "No journeys found.") {
 		t.Errorf("empty list =\n%s", out)
+	}
+}
+
+func TestEachJourneyHasALegendForWhatItShows(t *testing.T) {
+	changed := stop("Brussel-Zuid", "16:33", 0, "15")
+	changed.PlatformChanged = true
+	plain := irail.Journey{Legs: []irail.Leg{ride("IC 2114", "", stop("Gent-Sint-Pieters", "15:46", 0, "10"), stop("Aarlen", "19:10", 0, "2"))}}
+	withChange := irail.Journey{Legs: []irail.Leg{ride("IC 2117", "", changed, stop("Aarlen", "19:42", 0, "2"))}}
+
+	l := LayOutJourneys([]irail.Journey{plain, withChange}, JourneyOptions{Width: 100, Now: at("14:52"), Location: brussels})
+
+	text := func(lines []string) string { return ansi.Strip(strings.Join(lines, "\n")) }
+	if strings.Contains(text(l.Legends[0]), "platform changed") {
+		t.Errorf("the first journey's legend explains a mark it does not show: %q", text(l.Legends[0]))
+	}
+	if !strings.Contains(text(l.Legends[1]), "platform changed") || !strings.Contains(text(l.Legend), "platform changed") {
+		t.Errorf("legends = %q and %q", text(l.Legends[1]), text(l.Legend))
+	}
+}
+
+func TestADayDoesNotPushAMissedChangeOffANarrowTerminal(t *testing.T) {
+	missed := irail.Journey{Legs: []irail.Leg{
+		ride("IC 1", "", stop("Gent-Sint-Pieters", "15:00", 10, "1"), stop("Brussel-Zuid", "15:30", 10, "2")),
+		ride("IC 2", "", stop("Brussel-Zuid", "15:36", 0, "3"), stop("Aarlen", "18:30", 0, "4")),
+	}}
+	tomorrow := irail.Journey{Legs: []irail.Leg{
+		ride("IC 3", "", irail.Stop{Station: "Gent-Sint-Pieters", Scheduled: at("06:00").AddDate(0, 0, 1)}, irail.Stop{Station: "Aarlen", Scheduled: at("10:00").AddDate(0, 0, 1)}),
+	}}
+
+	out := renderJourneys([]irail.Journey{missed, tomorrow}, 60)
+
+	if !strings.Contains(block(t, out, "15:00"), "change missed") {
+		t.Errorf("the missed change was cut:\n%s", out)
 	}
 }

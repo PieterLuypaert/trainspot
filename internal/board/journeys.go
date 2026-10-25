@@ -32,26 +32,63 @@ const (
 // Journeys lists each journey as a summary line with its stops and changes
 // below it.
 func Journeys(list []irail.Journey, o JourneyOptions) string {
-	var out strings.Builder
 	title := bold.Render(o.From) + " → " + bold.Render(o.To)
-	out.WriteString(header([]string{title}, o.Now.In(o.Location), o.Width) + "\n\n")
+	lines := []string{header([]string{title}, o.Now.In(o.Location), o.Width), ""}
 	if len(list) == 0 {
-		out.WriteString(indent + "No journeys found.\n\n")
+		lines = append(lines, indent+"No journeys found.", "")
 	}
+	l := LayOutJourneys(list, o)
+	for i, summary := range l.Summaries {
+		lines = append(append(lines, indent+summary), l.Stops[i]...)
+		lines = append(lines, "")
+	}
+	lines = append(lines, l.Legend...)
+	lines = append(lines, clip(Footer(o.Updated, o.Location), o.Width))
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// JourneyLines are the journeys drawn line by line, for a caller that lays
+// them out itself.
+type JourneyLines struct {
+	// Summaries holds a line per journey without indent, short enough for
+	// a two-column marker in front of it.
+	Summaries []string
+	// Stops holds the indented stop and change lines of each journey.
+	Stops [][]string
+	// Legend explains the marks of all summaries and stops, and Legends[i]
+	// those of the summaries and journey i's stops, for a caller that
+	// shows the stops of one journey only.
+	Legend  []string
+	Legends [][]string
+}
+
+func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 	v := newJourneyView(list, o)
-	for _, j := range list {
-		changes := j.Changes()
-		out.WriteString(clip(indent+v.summary(j, changes), o.Width) + "\n")
-		for _, line := range v.stops(j, changes) {
-			out.WriteString(clip(line, o.Width) + "\n")
+	var l JourneyLines
+	var summaries [][]string
+	changes := make([][]irail.Change, len(list))
+	for i, j := range list {
+		changes[i] = j.Changes()
+		summaries = append(summaries, v.summary(j, changes[i]))
+	}
+	summaryNotes, all := v.notes, slices.Clone(v.notes)
+	for i, j := range list {
+		v.notes = slices.Clone(summaryNotes)
+		var stops []string
+		for _, line := range v.stops(j, changes[i]) {
+			stops = append(stops, clip(line, o.Width))
 		}
-		out.WriteString("\n")
+		l.Stops = append(l.Stops, stops)
+		l.Legends = append(l.Legends, v.legendLines(v.notes))
+		for _, n := range v.notes {
+			all = addNote(all, &n)
+		}
 	}
-	for _, line := range legend(noteTexts(v.notes), o.Width) {
-		out.WriteString(clip(indent+line, o.Width) + "\n")
+	for _, line := range alignSummaries(summaries) {
+		l.Summaries = append(l.Summaries, clip(line, o.Width-len(indent)))
 	}
-	out.WriteString(clip(footer(o.Updated, o.Location), o.Width) + "\n")
-	return out.String()
+	l.Legend = v.legendLines(all)
+	return l
 }
 
 type journeyView struct {
@@ -94,19 +131,59 @@ func (v *journeyView) delayColumn(mark string) string {
 	return " " + mark + strings.Repeat(" ", v.delay-lipgloss.Width(mark))
 }
 
-func (v *journeyView) summary(j irail.Journey, changes []irail.Change) string {
+func (v *journeyView) legendLines(notes []note) []string {
+	var lines []string
+	for _, line := range legend(noteTexts(slices.Clone(notes)), v.o.Width) {
+		lines = append(lines, clip(indent+line, v.o.Width))
+	}
+	return lines
+}
+
+// summary is the parts of a journey's summary line: its times, how long it
+// takes and its changes, or that it is cancelled, and last the day when it
+// does not leave today, so that a narrow terminal cuts that first.
+func (v *journeyView) summary(j irail.Journey, changes []irail.Change) []string {
 	dep, arr := j.Departure(), j.Arrival()
-	start := v.day(dep.Scheduled) + bold.Render(clock(dep.Scheduled, v.o.Location))
+	start := bold.Render(clock(dep.Scheduled, v.o.Location))
 	end := bold.Render(clock(arr.Scheduled, v.o.Location))
+	var parts []string
 	if j.Cancelled() {
-		return start + " → " + end + "   " + alarm.Render("cancelled")
+		parts = []string{start + " → " + end, alarm.Render("cancelled")}
+	} else {
+		times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
+		parts = []string{times, formatDuration(j.Duration()), changesText(len(changes))}
+		if slices.ContainsFunc(changes, irail.Change.Missed) {
+			parts = append(parts, alarm.Render("change missed"))
+		}
 	}
-	times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
-	parts := []string{times, formatDuration(j.Duration()), changesText(len(changes))}
-	if slices.ContainsFunc(changes, irail.Change.Missed) {
-		parts = append(parts, alarm.Render("change missed"))
+	if day := v.day(dep.Scheduled); day != "" {
+		parts = append(parts, day)
 	}
-	return strings.Join(parts, "   ")
+	return parts
+}
+
+// alignedColumns is how many summary columns line up: the times and the
+// durations.
+const alignedColumns = 2
+
+// alignSummaries pads the first columns to their widest entry, so the
+// durations and changes of all journeys line up.
+func alignSummaries(rows [][]string) []string {
+	widths := make([]int, alignedColumns)
+	for _, parts := range rows {
+		for i := range min(alignedColumns, len(parts)-1) {
+			widths[i] = max(widths[i], lipgloss.Width(parts[i]))
+		}
+	}
+	lines := make([]string, 0, len(rows))
+	for _, parts := range rows {
+		padded := slices.Clone(parts)
+		for i := range min(alignedColumns, len(parts)-1) {
+			padded[i] += strings.Repeat(" ", widths[i]-lipgloss.Width(parts[i]))
+		}
+		lines = append(lines, strings.Join(padded, "   "))
+	}
+	return lines
 }
 
 // stops lists every stop, with a change before each train after the
@@ -193,7 +270,7 @@ func (v *journeyView) day(t time.Time) string {
 	if t.In(v.o.Location).Format("2006-01-02") == today {
 		return ""
 	}
-	return faint.Render(t.In(v.o.Location).Format("Mon 2 Jan")) + "  "
+	return faint.Render(t.In(v.o.Location).Format("Mon 2 Jan"))
 }
 
 // clip shortens a line that would not fit the width even after the
