@@ -269,15 +269,16 @@ func (a app) showJourneys(ctx context.Context, dir *stations.Directory, from sta
 	if to.ID == from.ID {
 		return usageError{fmt.Sprintf("%s is both where the journey starts and ends; pick two different stations", from.Name(lang))}
 	}
-	journeys, err := a.client.Journeys(ctx, from.ID, to.ID, lang)
+	trip, err := a.client.Journeys(ctx, from.ID, to.ID, lang)
 	if err != nil {
 		return fmt.Errorf("could not get the journeys from %s to %s: %w", from.Name(lang), to.Name(lang), err)
 	}
-	fmt.Fprint(a.out, board.Journeys(journeys, board.JourneyOptions{
+	fmt.Fprint(a.out, board.Journeys(trip.Journeys, board.JourneyOptions{
 		From:     from.Name(lang),
 		To:       to.Name(lang),
 		Width:    a.width,
 		Now:      a.now(),
+		Updated:  trip.Updated,
 		Location: brussels,
 	}))
 	return nil

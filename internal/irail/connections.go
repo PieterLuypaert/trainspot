@@ -76,21 +76,28 @@ type endpointJSON struct {
 	} `json:"direction"`
 }
 
+// Trip holds the journeys iRail found between two stations.
+type Trip struct {
+	Updated  time.Time
+	Journeys []Journey
+}
+
 // Journeys returns the next ways to travel between two stations, named in
 // lang.
-func (c *Client) Journeys(ctx context.Context, fromID, toID, lang string) ([]Journey, error) {
+func (c *Client) Journeys(ctx context.Context, fromID, toID, lang string) (Trip, error) {
 	var raw struct {
+		Timestamp  number           `json:"timestamp"`
 		Connection []connectionJSON `json:"connection"`
 	}
 	params := url.Values{"from": {fromID}, "to": {toID}, "lang": {lang}, "timesel": {"departure"}, "results": {"6"}}
 	if err := c.get(ctx, "connections", params, &raw); err != nil {
-		return nil, err
+		return Trip{}, err
 	}
-	journeys := make([]Journey, 0, len(raw.Connection))
+	trip := Trip{Updated: time.Unix(int64(raw.Timestamp), 0)}
 	for _, conn := range raw.Connection {
-		journeys = append(journeys, conn.journey())
+		trip.Journeys = append(trip.Journeys, conn.journey())
 	}
-	return journeys, nil
+	return trip, nil
 }
 
 // journey pairs each departure with the next arrival: iRail lists the

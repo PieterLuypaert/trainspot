@@ -19,7 +19,7 @@ func ride(train, direction string, from, to irail.Stop) irail.Leg {
 }
 
 func renderJourneys(list []irail.Journey, width int) string {
-	return ansi.Strip(Journeys(list, JourneyOptions{From: "Gent-Sint-Pieters", To: "Aarlen", Width: width, Now: at("14:52"), Location: brussels}))
+	return ansi.Strip(Journeys(list, JourneyOptions{From: "Gent-Sint-Pieters", To: "Aarlen", Width: width, Now: at("14:52"), Updated: at("14:51"), Location: brussels}))
 }
 
 // block returns the lines of the journey whose summary starts with prefix.
@@ -64,6 +64,9 @@ func TestJourneysSummariseEachWayToTravel(t *testing.T) {
 	}
 	if !strings.Contains(block(t, out, "15:46"), "15:46 → 19:10   3h24   direct") {
 		t.Errorf("direct journey:\n%s", out)
+	}
+	if !strings.Contains(out, "Live NMBS data via iRail, updated 14:51") {
+		t.Errorf("source line should give iRail's time:\n%s", out)
 	}
 	if !strings.Contains(out, "+5 = 5 min late  ·  6 ! = platform changed") {
 		t.Errorf("legend missing:\n%s", out)

@@ -13,10 +13,12 @@ import (
 )
 
 type JourneyOptions struct {
-	From     string
-	To       string
-	Width    int
-	Now      time.Time
+	From  string
+	To    string
+	Width int
+	Now   time.Time
+	// Updated is when iRail worked the journeys out.
+	Updated  time.Time
 	Location *time.Location
 }
 
@@ -48,7 +50,7 @@ func Journeys(list []irail.Journey, o JourneyOptions) string {
 	for _, line := range legend(noteTexts(v.notes), o.Width) {
 		out.WriteString(clip(indent+line, o.Width) + "\n")
 	}
-	out.WriteString(clip(indent+faint.Render("Live NMBS data via iRail, updated "+o.Now.In(o.Location).Format("15:04")), o.Width) + "\n")
+	out.WriteString(clip(indent+faint.Render("Live NMBS data via iRail, updated "+o.Updated.In(o.Location).Format("15:04")), o.Width) + "\n")
 	return out.String()
 }
 

@@ -59,7 +59,7 @@ func (f *fakeIRail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			 "platform":"6","platforminfo":{"name":"6","normal":"1"},"vehicleinfo":{"shortname":"IC 535"},"occupancy":{"name":"low"}}]}}`)
 	case "/connections/":
 		f.journeys = append(f.journeys, query)
-		fmt.Fprint(w, `{"connection":[{
+		fmt.Fprint(w, `{"timestamp":"1792936000","connection":[{
 			"departure":{"station":"Gent-Sint-Pieters","time":"1792936320","delay":"120","canceled":"0","walking":"0","vehicle":"BE.NMBS.IC535","vehicleinfo":{"shortname":"IC 535"},"platform":"11","direction":{"name":"Oostende"}},
 			"arrival":{"station":"Brugge","time":"1792937820","delay":"0","canceled":"0","walking":"0","platform":"4"}}]}`)
 	default:

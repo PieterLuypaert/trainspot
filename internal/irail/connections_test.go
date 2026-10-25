@@ -29,11 +29,15 @@ func TestJourneysAsksForBothStationsByID(t *testing.T) {
 func TestJourneysReadARecordedAnswer(t *testing.T) {
 	client, _ := serveFile(t, "testdata/connections-gent-sint-pieters-aarlen.json")
 
-	journeys, err := client.Journeys(context.Background(), "BE.NMBS.008892007", "BE.NMBS.008866001", "nl")
+	trip, err := client.Journeys(context.Background(), "BE.NMBS.008892007", "BE.NMBS.008866001", "nl")
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	journeys := trip.Journeys
+	if !trip.Updated.Equal(time.Unix(1792941395, 0)) {
+		t.Errorf("Updated = %v", trip.Updated)
+	}
 	if len(journeys) != 6 {
 		t.Fatalf("got %d journeys", len(journeys))
 	}
@@ -70,11 +74,12 @@ func TestJourneysReadWalksAndCancelledTrains(t *testing.T) {
 		}]}`))
 	})
 
-	journeys, err := client.Journeys(context.Background(), "a", "b", "nl")
+	trip, err := client.Journeys(context.Background(), "a", "b", "nl")
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	journeys := trip.Journeys
 	walk := journeys[0].Legs[1]
 	if !walk.Walking || walk.Train != "" || walk.Direction != "" || walk.Departure.Platform != "" {
 		t.Errorf("walk = %+v", walk)
