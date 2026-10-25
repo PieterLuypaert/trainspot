@@ -88,8 +88,11 @@ func (m Model) planningBody(width int) []string {
 			body = append(body, m.suggestionLines(width)...)
 		}
 	}
-	if m.note != "" {
+	switch {
+	case m.note != "":
 		body = append(body, "", indent+alarm.Render(m.note))
+	case m.fields[m.focus].text == "":
+		body = append(body, "", indent+faint.Render("Type a station's name in any language, such as gent, liège or brussels airport."))
 	}
 	return body
 }
@@ -174,7 +177,9 @@ func (m Model) journeysBody(width int) []string {
 		}
 		body = append(body, marker+summary)
 	}
-	body = append(append(body, ""), lines.Stops[m.selected]...)
+	// The rule sets the selected journey's stops apart from the list.
+	rule := indent + faint.Render(strings.Repeat("─", max(0, width-2*len(indent))))
+	body = append(append(body, rule), lines.Stops[m.selected]...)
 	body = append(append(body, ""), lines.Legend...)
 	return append(body, m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
 }

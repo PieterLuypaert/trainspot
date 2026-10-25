@@ -179,7 +179,7 @@ func letter(r rune) tea.KeyPressMsg {
 func TestOpensOnTheFormWithoutALastTrip(t *testing.T) {
 	h := newHarness(t, "", "")
 
-	h.wantOnScreen("Plan a trip", "Sun 25 Oct 16:36", "From  ▌", "To    station name", "enter search", "esc quit")
+	h.wantOnScreen("Plan a trip", "Sun 25 Oct 16:36", "From  ▌", "To    station name", "Type a station's name in any language", "enter search", "esc quit")
 }
 
 func TestSuggestsStationsAsYouType(t *testing.T) {
@@ -211,7 +211,7 @@ func TestPlansATripAndShowsItsJourneys(t *testing.T) {
 	h.press(enter)
 
 	h.wantOnScreen("Gent-Sint-Pieters → Aarlen", "▸ 17:13 → 21:22   4h09   1 change", "  18:46 → 22:10   3h24   direct",
-		"IC 3615 to Leuven", "change 6 min", "IC 2118 to Aarlen", "Live NMBS data via iRail, updated 16:36", "d departures")
+		"─────", "IC 3615 to Leuven", "change 6 min", "IC 2118 to Aarlen", "Live NMBS data via iRail, updated 16:36", "d departures")
 	if strings.Join(h.src.trips, ",") != gentID+">"+aarlenID || strings.Join(h.remembered, ",") != gentID+">"+aarlenID {
 		t.Errorf("asked %v, remembered %v", h.src.trips, h.remembered)
 	}
