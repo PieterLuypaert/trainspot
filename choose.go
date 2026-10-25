@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"strconv"
 	"strings"
@@ -73,14 +72,13 @@ func (a app) ask(query string, matches []stations.Station, lang string) (station
 	}
 	fmt.Fprintln(a.errOut)
 
-	answers := bufio.NewScanner(a.in)
 	for {
 		fmt.Fprintf(a.errOut, "  Which one? Type a number from 1 to %d: ", len(shown))
-		if !answers.Scan() {
+		if !a.answers.Scan() {
 			fmt.Fprintln(a.errOut)
 			return stations.Station{}, usageError{"no station chosen"}
 		}
-		n, err := strconv.Atoi(strings.TrimSpace(answers.Text()))
+		n, err := strconv.Atoi(strings.TrimSpace(a.answers.Text()))
 		if err == nil && n >= 1 && n <= len(shown) {
 			fmt.Fprintln(a.errOut)
 			return shown[n-1], nil

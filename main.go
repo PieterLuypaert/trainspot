@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -91,7 +92,7 @@ func main() {
 	a := app{
 		client:      irail.NewClient("trainspot/" + appVersion() + " (https://github.com/PieterLuypaert/trainspot)"),
 		now:         time.Now,
-		in:          os.Stdin,
+		answers:     bufio.NewScanner(os.Stdin),
 		out:         stdout,
 		errOut:      stderr,
 		interactive: term.IsTerminal(os.Stdin.Fd()),
@@ -205,10 +206,12 @@ func terminalWidth() int {
 }
 
 type app struct {
-	client      *irail.Client
-	cachePath   string
-	now         func() time.Time
-	in          io.Reader
+	client    *irail.Client
+	cachePath string
+	now       func() time.Time
+	// answers reads what the user types into the picker; one scanner for
+	// the whole run, since a second one could miss lines the first buffered.
+	answers     *bufio.Scanner
 	out         io.Writer
 	errOut      io.Writer
 	interactive bool

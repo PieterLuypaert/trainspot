@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -88,7 +89,7 @@ func runWith(t *testing.T, args []string, input string, interactive bool, iRail 
 		client:      client,
 		cachePath:   filepath.Join(t.TempDir(), "stations.json"),
 		now:         func() time.Time { return time.Unix(1792936000, 0) },
-		in:          strings.NewReader(input),
+		answers:     bufio.NewScanner(strings.NewReader(input)),
 		out:         &out,
 		errOut:      &errOut,
 		interactive: interactive,
@@ -122,6 +123,17 @@ func TestShowsTheJourneysBetweenTwoStations(t *testing.T) {
 	}
 	if got := r.iRail.journeys[0]; got.Get("from") != "BE.NMBS.008892007" || got.Get("to") != "BE.NMBS.008891009" {
 		t.Errorf("journeys asked for %v", got)
+	}
+}
+
+func TestAsksForBothStationsInTurn(t *testing.T) {
+	r := runWith(t, []string{"gent", "--to", "gent"}, "1\n2\n", true, &fakeIRail{})
+
+	if r.code != 0 || len(r.iRail.journeys) != 1 {
+		t.Fatalf("code %d, err:\n%s", r.code, r.err)
+	}
+	if got := r.iRail.journeys[0]; got.Get("from") != "BE.NMBS.008893120" || got.Get("to") != "BE.NMBS.008892007" {
+		t.Errorf("journeys asked for %v, want Gent-Dampoort to Gent-Sint-Pieters", got)
 	}
 }
 
