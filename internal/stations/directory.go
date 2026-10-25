@@ -50,6 +50,13 @@ func (d *Directory) Len() int {
 type ranked struct {
 	station Station
 	score   int
+	// sortName is the normalized name in the asked language, worked out
+	// once rather than in every comparison.
+	sortName string
+}
+
+func rank(s Station, score int, lang string) ranked {
+	return ranked{station: s, score: score, sortName: normalize(s.Name(lang))}
 }
 
 // Lookup returns the stations a query can mean, best first. Sure says the
@@ -67,10 +74,10 @@ func (d *Directory) Lookup(query, lang string) (matches []Station, sure bool) {
 			best = max(best, fit(q, words, a))
 		}
 		if best != noMatch {
-			found = append(found, ranked{s, best})
+			found = append(found, rank(s, best, lang))
 		}
 	}
-	sortRanked(found, lang)
+	sortRanked(found)
 	for _, r := range found {
 		matches = append(matches, r.station)
 	}
@@ -119,10 +126,10 @@ func (d *Directory) Suggest(query, lang string, n int) []Station {
 			}
 		}
 		if best <= allowed {
-			near = append(near, ranked{s, -best})
+			near = append(near, rank(s, -best, lang))
 		}
 	}
-	sortRanked(near, lang)
+	sortRanked(near)
 	var suggestions []Station
 	for _, r := range near[:min(n, len(near))] {
 		suggestions = append(suggestions, r.station)
@@ -132,7 +139,7 @@ func (d *Directory) Suggest(query, lang string, n int) []Station {
 
 // sortRanked orders by score, highest first, then Belgian stations before
 // foreign ones, then by name.
-func sortRanked(list []ranked, lang string) {
+func sortRanked(list []ranked) {
 	slices.SortStableFunc(list, func(a, b ranked) int {
 		if c := cmp.Compare(b.score, a.score); c != 0 {
 			return c
@@ -143,7 +150,7 @@ func sortRanked(list []ranked, lang string) {
 			}
 			return 1
 		}
-		return cmp.Compare(normalize(a.station.Name(lang)), normalize(b.station.Name(lang)))
+		return cmp.Compare(a.sortName, b.sortName)
 	})
 }
 
