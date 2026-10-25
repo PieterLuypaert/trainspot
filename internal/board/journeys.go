@@ -54,29 +54,40 @@ type JourneyLines struct {
 	// a two-column marker in front of it.
 	Summaries []string
 	// Stops holds the indented stop and change lines of each journey.
-	Stops  [][]string
-	Legend []string
+	Stops [][]string
+	// Legend explains the marks of all summaries and stops, and Legends[i]
+	// those of the summaries and journey i's stops, for a caller that
+	// shows the stops of one journey only.
+	Legend  []string
+	Legends [][]string
 }
 
 func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 	v := newJourneyView(list, o)
 	var l JourneyLines
 	var summaries [][]string
-	for _, j := range list {
-		changes := j.Changes()
-		summaries = append(summaries, v.summary(j, changes))
+	changes := make([][]irail.Change, len(list))
+	for i, j := range list {
+		changes[i] = j.Changes()
+		summaries = append(summaries, v.summary(j, changes[i]))
+	}
+	summaryNotes, all := v.notes, slices.Clone(v.notes)
+	for i, j := range list {
+		v.notes = slices.Clone(summaryNotes)
 		var stops []string
-		for _, line := range v.stops(j, changes) {
+		for _, line := range v.stops(j, changes[i]) {
 			stops = append(stops, clip(line, o.Width))
 		}
 		l.Stops = append(l.Stops, stops)
+		l.Legends = append(l.Legends, v.legendLines(v.notes))
+		for _, n := range v.notes {
+			all = addNote(all, &n)
+		}
 	}
 	for _, line := range alignSummaries(summaries) {
 		l.Summaries = append(l.Summaries, clip(line, o.Width-len(indent)))
 	}
-	for _, line := range legend(noteTexts(v.notes), o.Width) {
-		l.Legend = append(l.Legend, clip(indent+line, o.Width))
-	}
+	l.Legend = v.legendLines(all)
 	return l
 }
 
@@ -118,6 +129,14 @@ func (v *journeyView) delayColumn(mark string) string {
 		return ""
 	}
 	return " " + mark + strings.Repeat(" ", v.delay-lipgloss.Width(mark))
+}
+
+func (v *journeyView) legendLines(notes []note) []string {
+	var lines []string
+	for _, line := range legend(noteTexts(slices.Clone(notes)), v.o.Width) {
+		lines = append(lines, clip(indent+line, v.o.Width))
+	}
+	return lines
 }
 
 // summary is the parts of a journey's summary line: its times, how long it

@@ -190,3 +190,20 @@ func TestJourneysSaySoWhenThereAreNone(t *testing.T) {
 		t.Errorf("empty list =\n%s", out)
 	}
 }
+
+func TestEachJourneyHasALegendForWhatItShows(t *testing.T) {
+	changed := stop("Brussel-Zuid", "16:33", 0, "15")
+	changed.PlatformChanged = true
+	plain := irail.Journey{Legs: []irail.Leg{ride("IC 2114", "", stop("Gent-Sint-Pieters", "15:46", 0, "10"), stop("Aarlen", "19:10", 0, "2"))}}
+	withChange := irail.Journey{Legs: []irail.Leg{ride("IC 2117", "", changed, stop("Aarlen", "19:42", 0, "2"))}}
+
+	l := LayOutJourneys([]irail.Journey{plain, withChange}, JourneyOptions{Width: 100, Now: at("14:52"), Location: brussels})
+
+	text := func(lines []string) string { return ansi.Strip(strings.Join(lines, "\n")) }
+	if strings.Contains(text(l.Legends[0]), "platform changed") {
+		t.Errorf("the first journey's legend explains a mark it does not show: %q", text(l.Legends[0]))
+	}
+	if !strings.Contains(text(l.Legends[1]), "platform changed") || !strings.Contains(text(l.Legend), "platform changed") {
+		t.Errorf("legends = %q and %q", text(l.Legends[1]), text(l.Legend))
+	}
+}

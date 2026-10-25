@@ -195,7 +195,7 @@ func (m Model) journeysBody(width int) (main, tail []string) {
 	// The rule sets the selected journey's stops apart from the list.
 	rule := indent + faint.Render(strings.Repeat("─", max(0, width-2*len(indent))))
 	body = append(append(body, rule), lines.Stops[m.selected]...)
-	tail = append(append([]string{""}, lines.Legend...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
+	tail = append(append([]string{""}, lines.Legends[m.selected]...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
 	return body, tail
 }
 
