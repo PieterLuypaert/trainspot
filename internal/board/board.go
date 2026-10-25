@@ -128,7 +128,9 @@ const (
 
 type column struct {
 	title string
-	cell  func(irail.Departure, Options) cell
+	// optional columns are left out when none of their cells say anything.
+	optional bool
+	cell     func(irail.Departure, Options) cell
 }
 
 var (
@@ -171,13 +173,13 @@ var (
 			return cell{text: d.Platform, style: bold}
 		}
 	}}
-	trainColumn = column{title: "Train", cell: func(d irail.Departure, o Options) cell {
+	trainColumn = column{title: "Train", optional: true, cell: func(d irail.Departure, o Options) cell {
 		if d.Extra {
 			return cell{text: d.Train + " extra", style: faint}
 		}
 		return cell{text: d.Train, style: faint}
 	}}
-	crowdColumn = column{title: "Crowd", cell: func(d irail.Departure, o Options) cell {
+	crowdColumn = column{title: "Crowd", optional: true, cell: func(d irail.Departure, o Options) cell {
 		switch d.Occupancy {
 		case "low":
 			return cell{text: "low", style: faint}
@@ -241,6 +243,7 @@ func departures(list []irail.Departure, o Options) (string, []string) {
 // before destinations get shorter than roomyDestination.
 func fit(list []irail.Departure, o Options) ([]column, []int) {
 	for _, layout := range layouts[:len(layouts)-1] {
+		layout = withoutEmpty(layout, list, o)
 		widths := natural(layout, list, o)
 		if shorten(widths, o.Width, roomyDestination) {
 			return layout, widths
@@ -250,6 +253,12 @@ func fit(list []irail.Departure, o Options) ([]column, []int) {
 	widths := natural(last, list, o)
 	shorten(widths, o.Width, minDestination)
 	return last, widths
+}
+
+func withoutEmpty(layout []column, list []irail.Departure, o Options) []column {
+	return slices.DeleteFunc(slices.Clone(layout), func(c column) bool {
+		return c.optional && !slices.ContainsFunc(list, func(d irail.Departure) bool { return c.cell(d, o).text != "" })
+	})
 }
 
 // shorten narrows the To column until the row fits width, but not below

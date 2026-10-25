@@ -125,6 +125,21 @@ func TestRenderLeavesNoWhitespaceOnlyLines(t *testing.T) {
 	}
 }
 
+func TestRenderLeavesOutTheCrowdColumnWithoutEstimates(t *testing.T) {
+	b := irail.Liveboard{Updated: at("14:52"), Departures: []irail.Departure{
+		{Destination: "Gent-Sint-Pieters", Scheduled: at("15:00"), Platform: "3", Train: "IC 1"},
+	}}
+
+	out := render(b, 100)
+
+	if heading := line(t, out, "Platform"); strings.Contains(heading, "Crowd") || !strings.Contains(heading, "Train") {
+		t.Errorf("heading = %q, want Train but no Crowd", heading)
+	}
+	if row := line(t, out, "IC 1"); strings.HasSuffix(row, " ") {
+		t.Errorf("row ends in spaces: %q", row)
+	}
+}
+
 func TestRenderFitsNarrowTerminals(t *testing.T) {
 	cases := []struct {
 		width   int
