@@ -140,41 +140,48 @@ func (v *journeyView) legendLines(notes []note) []string {
 }
 
 // summary is the parts of a journey's summary line: its times, how long it
-// takes and its changes, or that it is cancelled.
+// takes and its changes, or that it is cancelled, and last the day when it
+// does not leave today, so that a narrow terminal cuts that first.
 func (v *journeyView) summary(j irail.Journey, changes []irail.Change) []string {
 	dep, arr := j.Departure(), j.Arrival()
-	start := v.day(dep.Scheduled) + bold.Render(clock(dep.Scheduled, v.o.Location))
+	start := bold.Render(clock(dep.Scheduled, v.o.Location))
 	end := bold.Render(clock(arr.Scheduled, v.o.Location))
+	var parts []string
 	if j.Cancelled() {
-		return []string{start + " → " + end, alarm.Render("cancelled")}
+		parts = []string{start + " → " + end, alarm.Render("cancelled")}
+	} else {
+		times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
+		parts = []string{times, formatDuration(j.Duration()), changesText(len(changes))}
+		if slices.ContainsFunc(changes, irail.Change.Missed) {
+			parts = append(parts, alarm.Render("change missed"))
+		}
 	}
-	times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
-	parts := []string{times, formatDuration(j.Duration()), changesText(len(changes))}
-	if slices.ContainsFunc(changes, irail.Change.Missed) {
-		parts = append(parts, alarm.Render("change missed"))
+	if day := v.day(dep.Scheduled); day != "" {
+		parts = append(parts, day)
 	}
 	return parts
 }
 
-// alignSummaries pads every column but the last to its widest entry, so
-// the durations and changes of all journeys line up.
+// alignedColumns is how many summary columns line up: the times and the
+// durations.
+const alignedColumns = 2
+
+// alignSummaries pads the first columns to their widest entry, so the
+// durations and changes of all journeys line up.
 func alignSummaries(rows [][]string) []string {
-	var widths []int
+	widths := make([]int, alignedColumns)
 	for _, parts := range rows {
-		for i, part := range parts[:len(parts)-1] {
-			if i == len(widths) {
-				widths = append(widths, 0)
-			}
-			widths[i] = max(widths[i], lipgloss.Width(part))
+		for i := range min(alignedColumns, len(parts)-1) {
+			widths[i] = max(widths[i], lipgloss.Width(parts[i]))
 		}
 	}
 	lines := make([]string, 0, len(rows))
 	for _, parts := range rows {
-		line := ""
-		for i, part := range parts[:len(parts)-1] {
-			line += part + strings.Repeat(" ", widths[i]-lipgloss.Width(part)) + "   "
+		padded := slices.Clone(parts)
+		for i := range min(alignedColumns, len(parts)-1) {
+			padded[i] += strings.Repeat(" ", widths[i]-lipgloss.Width(parts[i]))
 		}
-		lines = append(lines, line+parts[len(parts)-1])
+		lines = append(lines, strings.Join(padded, "   "))
 	}
 	return lines
 }
@@ -263,7 +270,7 @@ func (v *journeyView) day(t time.Time) string {
 	if t.In(v.o.Location).Format("2006-01-02") == today {
 		return ""
 	}
-	return faint.Render(t.In(v.o.Location).Format("Mon 2 Jan")) + "  "
+	return faint.Render(t.In(v.o.Location).Format("Mon 2 Jan"))
 }
 
 // clip shortens a line that would not fit the width even after the
