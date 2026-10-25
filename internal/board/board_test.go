@@ -97,6 +97,34 @@ func TestRenderExplainsOnlyTheMarksOnTheBoard(t *testing.T) {
 	}
 }
 
+func TestRenderExplainsOnlyMarksThatAreDrawn(t *testing.T) {
+	b := irail.Liveboard{Updated: at("14:52"), Departures: []irail.Departure{
+		{Destination: "Lokeren", Scheduled: at("14:45"), Delay: 3 * time.Minute, Platform: "5", PlatformChanged: true, Departed: true, Train: "S53 664"},
+		{Destination: "Kortrijk", Scheduled: at("15:08"), Delay: 6 * time.Minute, Platform: "8", Cancelled: true, Train: "L 885"},
+		{Destination: "Genk", Scheduled: at("15:10"), Delay: 9 * time.Minute, Platform: "10", Train: "IC 1514"},
+	}}
+
+	out := render(b, 100)
+
+	if !strings.Contains(out, "+9 = 9 min late") || strings.Contains(out, "+3 = ") || strings.Contains(out, "+6 = ") {
+		t.Errorf("legend should explain the +9 on the board, not departed or cancelled trains:\n%s", out)
+	}
+	if strings.Contains(out, "platform changed") {
+		t.Errorf("legend explains a platform mark that a departed train does not show:\n%s", out)
+	}
+}
+
+func TestRenderLeavesNoWhitespaceOnlyLines(t *testing.T) {
+	calm := irail.Liveboard{Updated: at("14:52"), Departures: []irail.Departure{
+		{Destination: "Gent-Sint-Pieters", Scheduled: at("15:00"), Platform: "3", Train: "IC 1", Occupancy: "low"},
+	}}
+	for _, b := range []irail.Liveboard{calm, {Updated: at("02:10")}} {
+		if out := render(b, 80); strings.Contains(out, "\n  \n") || strings.Contains(out, "\n\n\n") {
+			t.Errorf("stray blank lines in\n%q", out)
+		}
+	}
+}
+
 func TestRenderFitsNarrowTerminals(t *testing.T) {
 	cases := []struct {
 		width   int
