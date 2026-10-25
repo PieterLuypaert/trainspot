@@ -125,6 +125,27 @@ func TestJourneysReadPassedAndCancelledCalls(t *testing.T) {
 	}
 }
 
+func TestAStopTellsATrainStandingThereFromOneThatLeft(t *testing.T) {
+	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"connection":[{
+			"departure":{"station":"Gent-Sint-Pieters","time":"1792940000","left":"0","arrived":"1","vehicleinfo":{"shortname":"IC 1"}},
+			"arrival":{"station":"Brussel-Zuid","time":"1792942000","arrived":"1"}}]}`))
+	})
+
+	trip, err := client.Journeys(context.Background(), "a", "b", "nl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	leg := trip.Journeys[0].Legs[0]
+	if leg.Departure.Passed || !leg.Departure.Arrived {
+		t.Errorf("a train standing at its departure counts as gone: %+v", leg.Departure)
+	}
+	if !leg.Arrival.Passed {
+		t.Errorf("a train that reached its arrival does not count as there: %+v", leg.Arrival)
+	}
+}
+
 func TestJourneysReadWalksAndCancelledTrains(t *testing.T) {
 	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"connection":[{
@@ -203,8 +224,7 @@ func TestAWalkBelongsToTheChangeAfterIt(t *testing.T) {
 		{"walk between trains", Journey{[]Leg{train("A", "Haren-Zuid", 0, 20, 4), walk, train("Haren", "C", 36, 60, 0)}},
 			[]Change{{Planned: 6 * time.Minute, Real: 2 * time.Minute}}},
 		{"walk to the destination", Journey{[]Leg{train("A", "Haren-Zuid", 0, 20, 4), walk}}, nil},
-		{"walk from the start", Journey{[]Leg{walk, train("Haren", "C", 36, 60, 0)}},
-			[]Change{{Planned: 6 * time.Minute, Real: 6 * time.Minute}}},
+		{"walk from the start", Journey{[]Leg{walk, train("Haren", "C", 36, 60, 0)}}, nil},
 	}
 	for _, c := range cases {
 		if got := c.journey.Changes(); !slices.Equal(got, c.want) {

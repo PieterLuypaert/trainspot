@@ -182,7 +182,9 @@ func (c connectionJSON) journey() Journey {
 
 	var j Journey
 	for i, dep := range departures {
-		leg := Leg{Walking: bool(dep.Walking), Departure: dep.stop(), Arrival: arrivals[i].stop()}
+		arrival := arrivals[i].stop()
+		arrival.Passed = arrival.Arrived
+		leg := Leg{Walking: bool(dep.Walking), Departure: dep.stop(), Arrival: arrival}
 		if !leg.Walking {
 			leg.Train, leg.Vehicle = trainName(dep.VehicleInfo.ShortName, dep.Vehicle), dep.Vehicle
 			leg.Direction = dep.Direction.Name
@@ -204,7 +206,8 @@ func (e endpointJSON) stop() Stop {
 		Platform:        platform,
 		PlatformChanged: platformChanged,
 		Cancelled:       bool(e.Canceled),
-		Passed:          bool(e.Left) || bool(e.Arrived),
+		Passed:          bool(e.Left),
+		Arrived:         bool(e.Arrived),
 	}
 }
 
@@ -231,13 +234,18 @@ func (c Change) Tight() bool {
 }
 
 // Changes lists the changes from one train to the next, one for every
-// leg after the first that is not a walk. A walk between two stations
-// belongs to the change after it, since it starts when the train before
-// it arrives.
+// train after the first. A walk between two stations belongs to the change
+// after it, since it starts when the train before it arrives; a walk
+// before the first train is no change at all.
 func (j Journey) Changes() []Change {
 	var changes []Change
-	for i := 1; i < len(j.Legs); i++ {
+	rode := false
+	for i := range j.Legs {
 		if j.Legs[i].Walking {
+			continue
+		}
+		if !rode {
+			rode = true
 			continue
 		}
 		planned, expected := j.reach(i)
