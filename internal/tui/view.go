@@ -118,7 +118,7 @@ func (m Model) fieldLine(i int, f field) string {
 }
 
 func (m Model) suggestionLines(width int) []string {
-	list, typos := m.suggestions()
+	list, typos := m.suggested, m.typos
 	pad := strings.Repeat(" ", len(indent)+labelWidth)
 	var lines []string
 	if typos {

@@ -58,6 +58,10 @@ type Model struct {
 
 	fields [2]field
 	focus  int
+	// suggested holds the stations the focused field can mean, worked out
+	// when its text or the focus changes; typos says they are near misses.
+	suggested []stations.Station
+	typos     bool
 	// choice is the highlighted suggestion under the focused field.
 	choice int
 
@@ -204,48 +208,50 @@ func (m Model) planningKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toJourneys()
 	case "up":
 		m.choice = max(0, m.choice-1)
+		return m, nil
 	case "down":
-		list, _ := m.suggestions()
-		m.choice = max(0, min(len(list)-1, m.choice+1))
+		m.choice = max(0, min(len(m.suggested)-1, m.choice+1))
+		return m, nil
 	case "enter":
 		return m.confirm(true)
 	case "tab":
 		return m.confirm(false)
 	case "shift+tab":
-		m.focus, m.choice = 1-m.focus, 0
+		m.focus = 1 - m.focus
 	case "backspace":
 		f.backspace()
-		m.choice = 0
 	case "ctrl+w":
 		f.deleteWord()
-		m.choice = 0
 	case "ctrl+u":
 		f.clear()
-		m.choice = 0
 	default:
 		m.typed(k.Text)
+		return m, nil
 	}
+	m.suggest()
 	return m, nil
 }
 
 func (m *Model) typed(text string) {
 	m.fields[m.focus].insert(strings.ReplaceAll(text, "\n", " "))
-	m.note, m.choice = "", 0
+	m.note = ""
+	m.suggest()
 }
 
-// suggestions are the stations the focused field can mean, best first.
-// When nothing fits, they are the names a few typos away, and typos is
-// true.
-func (m Model) suggestions() (list []stations.Station, typos bool) {
+// suggest works out the stations the focused field can mean, best first.
+// When nothing fits, they are the names a few typos away.
+func (m *Model) suggest() {
+	m.suggested, m.typos, m.choice = nil, false, 0
 	f := m.fields[m.focus]
 	if f.station != nil || strings.TrimSpace(f.text) == "" {
-		return nil, false
+		return
 	}
-	list, _ = m.cfg.Stations.Lookup(f.text, m.cfg.Lang)
-	if len(list) == 0 {
-		return m.cfg.Stations.Suggest(f.text, m.cfg.Lang, 3), true
+	m.suggested, _ = m.cfg.Stations.Lookup(f.text, m.cfg.Lang)
+	if len(m.suggested) == 0 {
+		m.suggested, m.typos = m.cfg.Stations.Suggest(f.text, m.cfg.Lang, 3), true
+		return
 	}
-	return list[:min(len(list), maxSuggestions)], false
+	m.suggested = m.suggested[:min(len(m.suggested), maxSuggestions)]
 }
 
 // confirm picks the highlighted suggestion and moves to the other field.
@@ -254,17 +260,16 @@ func (m Model) suggestions() (list []stations.Station, typos bool) {
 func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 	f := &m.fields[m.focus]
 	if f.station == nil {
-		list, _ := m.suggestions()
-		if len(list) > 0 {
-			f.pick(list[min(m.choice, len(list)-1)], m.cfg.Lang)
+		if len(m.suggested) > 0 {
+			f.pick(m.suggested[min(m.choice, len(m.suggested)-1)], m.cfg.Lang)
 		} else if search {
 			return m, nil
 		}
 	}
-	m.choice = 0
 	from, to := m.fields[0].station, m.fields[1].station
 	if !search || from == nil || to == nil {
 		m.focus = 1 - m.focus
+		m.suggest()
 		return m, nil
 	}
 	if from.ID == to.ID {
@@ -315,7 +320,8 @@ func (m Model) toDepartures() (tea.Model, tea.Cmd) {
 
 func (m Model) toPlanning() (tea.Model, tea.Cmd) {
 	m.screen, m.waiting, m.err = planning, 0, nil
-	m.focus, m.choice = 1, 0
+	m.focus = 1
+	m.suggest()
 	return m, nil
 }
 
