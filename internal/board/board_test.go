@@ -140,6 +140,28 @@ func TestRenderLeavesOutTheCrowdColumnWithoutEstimates(t *testing.T) {
 	}
 }
 
+func TestWidthsAreWhereTheBoardKeepsEveryColumn(t *testing.T) {
+	o := Options{Now: at("14:52"), Location: brussels}
+	full, least := Widths(sampleBoard(), o)
+
+	draw := func(width int) []string {
+		o.Width = width
+		rows, _ := DepartureLines(sampleBoard(), o)
+		return rows
+	}
+	if heading := ansi.Strip(draw(least)[0]); !strings.Contains(heading, "Crowd") {
+		t.Errorf("at its least width %d the board lacks a column: %q", least, heading)
+	}
+	if heading := ansi.Strip(draw(least - 1)[0]); strings.Contains(heading, "Crowd") {
+		t.Errorf("one column under its least width %d the board still has every column: %q", least, heading)
+	}
+	for _, row := range draw(full) {
+		if strings.Contains(row, "…") {
+			t.Errorf("at its full width %d a cell is shortened: %q", full, ansi.Strip(row))
+		}
+	}
+}
+
 func TestRenderShowsAnEarlyTrainAsOnTime(t *testing.T) {
 	b := irail.Liveboard{Updated: at("14:52"), Departures: []irail.Departure{
 		{Destination: "Leuven", Scheduled: at("15:13"), Delay: -time.Minute, Platform: "9", Train: "IC 3613"},
