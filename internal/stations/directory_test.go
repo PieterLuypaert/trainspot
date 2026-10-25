@@ -141,3 +141,14 @@ func TestLocalNameShowsTheOfficialNameWhenItDiffers(t *testing.T) {
 		}
 	}
 }
+
+func TestByIDFindsAStationByItsID(t *testing.T) {
+	d := recorded(t)
+
+	if s, ok := d.ByID("BE.NMBS.008881000"); !ok || s.Name("nl") != "Bergen" {
+		t.Errorf("ByID(Bergen's id) = %v, %v", s.Name("nl"), ok)
+	}
+	if _, ok := d.ByID("BE.NMBS.000000000"); ok {
+		t.Error("ByID found a station for an unknown id")
+	}
+}
