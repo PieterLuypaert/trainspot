@@ -62,8 +62,8 @@ func TestJourneysSummariseEachWayToTravel(t *testing.T) {
 			t.Errorf("journey lacks %q:\n%s", want, b)
 		}
 	}
-	if !strings.Contains(block(t, out, "15:46"), "15:46 → 19:10   3h24   direct") {
-		t.Errorf("direct journey:\n%s", out)
+	if !strings.Contains(block(t, out, "15:46"), "15:46 → 19:10         3h24   direct") {
+		t.Errorf("the direct journey's duration should line up with the one above:\n%s", out)
 	}
 	if !strings.Contains(out, "Live NMBS data via iRail, updated 14:51") {
 		t.Errorf("source line should give iRail's time:\n%s", out)
@@ -106,7 +106,8 @@ func TestJourneysNameLongChangesInHoursAndTheDayAtNight(t *testing.T) {
 
 	out := renderJourneys([]irail.Journey{j, tomorrow}, 100)
 
-	if !strings.Contains(out, "change 3h19") || !strings.Contains(block(t, out, "23:03"), "23:03 → 07:22   8h19") {
+	night := strings.Fields(strings.SplitN(block(t, out, "23:03"), "\n", 2)[0])
+	if !strings.Contains(out, "change 3h19") || strings.Join(night[:4], " ") != "23:03 → 07:22 8h19" {
 		t.Errorf("long change or night journey:\n%s", out)
 	}
 	if !strings.Contains(out, "  Mon 26 Oct  06:00 → 10:00") {

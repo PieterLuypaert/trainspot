@@ -61,14 +61,18 @@ type JourneyLines struct {
 func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 	v := newJourneyView(list, o)
 	var l JourneyLines
+	var summaries [][]string
 	for _, j := range list {
 		changes := j.Changes()
-		l.Summaries = append(l.Summaries, clip(v.summary(j, changes), o.Width-len(indent)))
+		summaries = append(summaries, v.summary(j, changes))
 		var stops []string
 		for _, line := range v.stops(j, changes) {
 			stops = append(stops, clip(line, o.Width))
 		}
 		l.Stops = append(l.Stops, stops)
+	}
+	for _, line := range alignSummaries(summaries) {
+		l.Summaries = append(l.Summaries, clip(line, o.Width-len(indent)))
 	}
 	for _, line := range legend(noteTexts(v.notes), o.Width) {
 		l.Legend = append(l.Legend, clip(indent+line, o.Width))
@@ -116,19 +120,44 @@ func (v *journeyView) delayColumn(mark string) string {
 	return " " + mark + strings.Repeat(" ", v.delay-lipgloss.Width(mark))
 }
 
-func (v *journeyView) summary(j irail.Journey, changes []irail.Change) string {
+// summary is the parts of a journey's summary line: its times, how long it
+// takes and its changes, or that it is cancelled.
+func (v *journeyView) summary(j irail.Journey, changes []irail.Change) []string {
 	dep, arr := j.Departure(), j.Arrival()
 	start := v.day(dep.Scheduled) + bold.Render(clock(dep.Scheduled, v.o.Location))
 	end := bold.Render(clock(arr.Scheduled, v.o.Location))
 	if j.Cancelled() {
-		return start + " → " + end + "   " + alarm.Render("cancelled")
+		return []string{start + " → " + end, alarm.Render("cancelled")}
 	}
 	times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
 	parts := []string{times, formatDuration(j.Duration()), changesText(len(changes))}
 	if slices.ContainsFunc(changes, irail.Change.Missed) {
 		parts = append(parts, alarm.Render("change missed"))
 	}
-	return strings.Join(parts, "   ")
+	return parts
+}
+
+// alignSummaries pads every column but the last to its widest entry, so
+// the durations and changes of all journeys line up.
+func alignSummaries(rows [][]string) []string {
+	var widths []int
+	for _, parts := range rows {
+		for i, part := range parts[:len(parts)-1] {
+			if i == len(widths) {
+				widths = append(widths, 0)
+			}
+			widths[i] = max(widths[i], lipgloss.Width(part))
+		}
+	}
+	lines := make([]string, 0, len(rows))
+	for _, parts := range rows {
+		line := ""
+		for i, part := range parts[:len(parts)-1] {
+			line += part + strings.Repeat(" ", widths[i]-lipgloss.Width(part)) + "   "
+		}
+		lines = append(lines, line+parts[len(parts)-1])
+	}
+	return lines
 }
 
 // stops lists every stop, with a change before each train after the
