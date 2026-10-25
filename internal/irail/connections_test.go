@@ -106,6 +106,7 @@ func TestChangesCountTheDelays(t *testing.T) {
 		{"comfortable", Journey{[]Leg{leg("A", "B", 0, 0, 30, 0), leg("B", "C", 36, 0, 60, 0)}}, 6 * time.Minute, 6 * time.Minute, false, false},
 		{"tight", Journey{[]Leg{leg("A", "B", 0, 4, 30, 4), leg("B", "C", 36, 0, 60, 0)}}, 6 * time.Minute, 2 * time.Minute, true, false},
 		{"missed", Journey{[]Leg{leg("A", "B", 0, 9, 30, 9), leg("B", "C", 36, 0, 60, 0)}}, 6 * time.Minute, -3 * time.Minute, false, true},
+		{"planned short", Journey{[]Leg{leg("A", "B", 0, 0, 30, 0), leg("B", "C", 32, 0, 60, 0)}}, 2 * time.Minute, 2 * time.Minute, false, false},
 		{"next train late too", Journey{[]Leg{leg("A", "B", 0, 9, 30, 9), leg("B", "C", 36, 10, 60, 10)}}, 6 * time.Minute, 7 * time.Minute, false, false},
 	}
 	for _, c := range cases {

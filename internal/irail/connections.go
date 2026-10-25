@@ -135,7 +135,8 @@ func (e endpointJSON) stop() Stop {
 	}
 }
 
-// TightChange is how short a change can be before it counts as tight.
+// TightChange is how short delays may squeeze a change before it counts
+// as tight.
 const TightChange = 3 * time.Minute
 
 // Change is a change from one train to the next.
@@ -150,8 +151,10 @@ func (c Change) Missed() bool {
 	return c.Real < 0
 }
 
+// Tight tells whether the delays squeezed the change below TightChange;
+// a change the timetable plans that short is not tight.
 func (c Change) Tight() bool {
-	return c.Real >= 0 && c.Real < TightChange
+	return c.Real >= 0 && c.Real < TightChange && c.Real < c.Planned
 }
 
 // Changes lists the changes from one train to the next, one for every
