@@ -296,3 +296,18 @@ func TestJourneyStopsSayWhereATrainNowEndsAndHideTheDelayOfASkippedStop(t *testi
 		t.Errorf("a skipped stop shows or explains its delay:\n%s\n%s", text, ansi.Strip(strings.Join(legend, " ")))
 	}
 }
+
+func TestTheJourneyListLeavesPassedStopsAlone(t *testing.T) {
+	left := stop("Gent-Sint-Pieters", "15:13", 0, "9")
+	left.Passed, left.PlatformChanged = true, true
+	j := irail.Journey{Legs: []irail.Leg{ride("IC 3614", "Leuven", left, stop("Brussel-Zuid", "16:07", 0, "14"))}}
+
+	out := Journeys([]irail.Journey{j}, JourneyOptions{From: "Gent-Sint-Pieters", To: "Brussel-Zuid", Width: 80, Now: at("15:20"), Location: brussels})
+
+	if !strings.Contains(ansi.Strip(out), "9 !") || !strings.Contains(ansi.Strip(out), "9 ! = platform changed") {
+		t.Errorf("the list hides the changed platform of a passed stop:\n%s", ansi.Strip(out))
+	}
+	if strings.Contains(out, faint.Render("Gent-Sint-Pieters")) {
+		t.Errorf("the list dims a passed stop:\n%q", out)
+	}
+}
