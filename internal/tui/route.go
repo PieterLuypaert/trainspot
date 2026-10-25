@@ -17,6 +17,7 @@ import (
 
 type routeMsg struct {
 	id    int
+	key   string
 	route irail.Route
 	err   error
 }
@@ -30,11 +31,11 @@ type followMsg struct {
 
 func (m Model) toRoute(d irail.Departure) (tea.Model, tea.Cmd) {
 	m.screen, m.waiting, m.err, m.note, m.scroll = route, 0, nil, "", 0
-	if d.Vehicle != m.routeOf.Vehicle || !d.Scheduled.Equal(m.routeOf.Scheduled) {
-		m.route, m.routeAt = irail.Route{}, time.Time{}
-	}
 	m.routeOf = d
-	if !m.stale(m.routeAt) {
+	if known := m.routes[departureKey(d)]; !m.stale(known.at) {
+		// The route on hand is refreshed a minute after it came, not after
+		// the board did.
+		m.triedAt = known.at
 		return m, nil
 	}
 	fetch := m.fetchRoute()
@@ -72,21 +73,22 @@ func (m Model) scrollKey(k tea.KeyPressMsg) Model {
 }
 
 func (m *Model) fetchRoute() tea.Cmd {
-	id, source, d, lang, loc := m.begin(), m.cfg.Source, m.routeOf, m.cfg.Lang, m.cfg.Location
-	station := m.boardStation()
+	id, key, ask := m.begin(), departureKey(m.routeOf), m.askRoute(m.routeOf)
+	known := m.routes[key]
+	known.tried = m.cfg.Now()
+	m.routes[key] = known
 	return func() tea.Msg {
-		route, err := source.RouteThrough(context.Background(), d.Vehicle, station, d.Scheduled.In(loc), lang)
-		return routeMsg{id: id, route: route, err: err}
+		route, err := ask()
+		return routeMsg{id: id, key: key, route: route, err: err}
 	}
 }
 
+// gotRoute keeps every route that comes, also one for a screen the user
+// has left, since the pane beside the board shows it too.
 func (m *Model) gotRoute(msg routeMsg) {
-	if msg.id != m.waiting {
-		return
-	}
-	m.waiting, m.err = 0, msg.err
-	if msg.err == nil {
-		m.route, m.routeAt = msg.route, m.cfg.Now()
+	m.keepRoute(msg.key, msg.route, msg.err)
+	if msg.id == m.waiting {
+		m.waiting, m.err = 0, msg.err
 	}
 }
 
@@ -147,13 +149,11 @@ func arrived(j irail.Journey) bool {
 // train and time, so the choice does not jump when an earlier train has
 // left.
 func (m *Model) keepBoardChoice(next irail.Liveboard) {
-	if m.boardChoice < len(m.board.Departures) {
-		chosen := m.board.Departures[m.boardChoice]
-		for i, d := range next.Departures {
-			if d.Vehicle == chosen.Vehicle && d.Scheduled.Equal(chosen.Scheduled) {
-				m.boardChoice = i
-				return
-			}
+	if chosen, ok := m.chosenDeparture(); ok {
+		key := departureKey(chosen)
+		if i := slices.IndexFunc(next.Departures, func(d irail.Departure) bool { return departureKey(d) == key }); i >= 0 {
+			m.boardChoice = i
+			return
 		}
 	}
 	m.boardChoice = max(0, min(m.boardChoice, len(next.Departures)-1))

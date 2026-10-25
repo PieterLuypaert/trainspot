@@ -79,6 +79,10 @@ type fakeSource struct {
 	// board, when set, is the answer for every board.
 	board     *irail.Liveboard
 	routeErrs map[string]error
+	// routeStops is how many stops of the route the answer keeps; all of
+	// them when zero. aalstLate makes the train late at Aalst.
+	routeStops int
+	aalstLate  time.Duration
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -124,12 +128,17 @@ func (f *fakeSource) RouteThrough(_ context.Context, vehicleID, _ string, _ time
 	call := func(station, hhmm string, passed, arrived bool) irail.Call {
 		return irail.Call{Station: station, Arrival: at(hhmm), Departure: at(hhmm), Passed: passed, Arrived: arrived}
 	}
-	return irail.Route{Train: strings.TrimPrefix(vehicleID, "BE.NMBS."), Updated: at("16:40"), Stops: []irail.Call{
+	stops := []irail.Call{
 		call("Gent-Sint-Pieters", "17:13", true, true),
 		call("Wetteren", "17:20", false, true),
 		call("Aalst", "17:30", false, false),
 		call("Brussel-Zuid", "18:07", false, false),
-	}}, nil
+	}
+	stops[2].ArrivalDelay, stops[2].DepartureDelay = f.aalstLate, f.aalstLate
+	if f.routeStops > 0 {
+		stops = stops[:f.routeStops]
+	}
+	return irail.Route{Train: strings.TrimPrefix(vehicleID, "BE.NMBS."), Updated: at("16:40"), Stops: stops}, nil
 }
 
 type harness struct {
@@ -154,7 +163,8 @@ func newHarness(t *testing.T, from, to string) *harness {
 			h.remembered = append(h.remembered, trips[0].From+">"+trips[0].To)
 			return nil
 		},
-		TickEvery: time.Nanosecond,
+		TickEvery:   time.Nanosecond,
+		SettleAfter: time.Nanosecond,
 	})
 	h.send(tea.WindowSizeMsg{Width: 90, Height: 30})
 	for _, msg := range run(t, h.m.Init()) {
@@ -1029,6 +1039,174 @@ func TestAWideFormWrapsItsHint(t *testing.T) {
 	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
 
 	h.wantOnScreen("Type a station's name", "brussels airport.")
+}
+
+func TestAWideBoardShowsTheChosenTrainsRouteBesideIt(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+
+	h.press(letter('d'))
+
+	var row string
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "▸ 16:49") {
+			row = l
+		}
+	}
+	if !besidePane(row) {
+		t.Errorf("no pane beside the chosen departure: %q", row)
+	}
+	h.wantOnScreen("IC 535 to Oostende", "◆  Wetteren", "train is here")
+	h.press(down, tea.KeyPressMsg{Code: tea.KeyUp})
+	if strings.Join(h.src.routes, ",") != "BE.NMBS.IC535,BE.NMBS.IC536" {
+		t.Errorf("routes asked for %v, want each train once", h.src.routes)
+	}
+
+	h.press(enter)
+	if len(h.src.routes) != 2 {
+		t.Errorf("opening the route fetched it again: %v", h.src.routes)
+	}
+	h.wantOnScreen("IC 535 to Oostende · from Gent-Sint-Pieters 16:49")
+}
+
+// besidePane tells whether a row has a divider between two panes, not
+// just the frame's own borders.
+func besidePane(row string) bool {
+	return strings.Contains(strings.Trim(row, "│ "), " │ ")
+}
+
+func wideBoard(t *testing.T) *harness {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+	h.press(letter('d'))
+	return h
+}
+
+func TestANarrowBoardHasNoPaneBesideIt(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(letter('d'))
+
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "▸ 16:49") && besidePane(l) {
+			t.Errorf("a narrow board has a pane beside it: %q", l)
+		}
+	}
+}
+
+func TestTheRouteBesideTheBoardIsAskedForOnceWhileOnItsWay(t *testing.T) {
+	h := wideBoard(t)
+	h.m.routes = map[string]knownRoute{}
+	key := departureKey(h.m.board.Departures[0])
+
+	first, second := h.sendOnly(settleMsg{key: key}), h.sendOnly(settleMsg{key: key, again: true})
+
+	if second != nil {
+		t.Error("a second fetch started while the first was on its way")
+	}
+	h.answer(first)
+	h.wantOnScreen("◆  Wetteren")
+}
+
+func TestAFailedRefreshKeepsTheRouteBesideTheBoard(t *testing.T) {
+	h := wideBoard(t)
+	h.src.routeErrs = map[string]error{"BE.NMBS.IC535": errors.New("iRail is down")}
+
+	h.press(letter('r'))
+
+	h.wantOnScreen("◆  Wetteren", "could not refresh its route: iRail is down")
+}
+
+func TestRTriesAFailedRouteBesideTheBoardAgain(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+	h.src.routeErrs = map[string]error{"BE.NMBS.IC535": errors.New("iRail is down")}
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+	h.press(letter('d'))
+	h.wantOnScreen("Could not get its route: iRail is down")
+
+	h.src.routeErrs = nil
+	h.press(letter('r'))
+
+	h.wantOnScreen("◆  Wetteren")
+}
+
+func TestTheRouteScreenRefreshesAMinuteAfterItsRouteCame(t *testing.T) {
+	h := wideBoard(t)
+	h.now = h.now.Add(10 * time.Second)
+	h.press(down)
+	h.press(tea.KeyPressMsg{Code: tea.KeyUp})
+	h.now = h.now.Add(10 * time.Second)
+	h.press(letter('r'), down)
+	asked := len(h.src.routes)
+
+	h.press(enter)
+	h.now = h.now.Add(55 * time.Second)
+	h.send(tickMsg(h.now))
+
+	if len(h.src.routes) != asked+1 || h.src.routes[asked] != "BE.NMBS.IC536" {
+		t.Errorf("routes asked for %v; want IC 536's again, a minute after it came", h.src.routes)
+	}
+}
+
+func TestANarrowedWindowFetchesNoRouteThatWasWaitingToSettle(t *testing.T) {
+	h := wideBoard(t)
+	settle := h.sendOnly(down)
+
+	h.send(tea.WindowSizeMsg{Width: 90, Height: 30})
+	h.answer(settle)
+
+	if strings.Join(h.src.routes, ",") != "BE.NMBS.IC535" {
+		t.Errorf("routes asked for %v after the window narrowed", h.src.routes)
+	}
+}
+
+func TestAPaneSaysWhenIRailHasNoRoute(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.routeStops = 1
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+
+	h.press(letter('d'))
+
+	h.wantOnScreen("iRail has no route for this train.")
+}
+
+func TestThePaneExplainsTheMarksOfItsRoute(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.aalstLate = 4 * time.Minute
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+
+	h.press(letter('d'))
+
+	h.wantOnScreen("+4 = 4 min late")
+}
+
+func TestTheRoutesOfTrainsThatLeftAreDropped(t *testing.T) {
+	h := wideBoard(t)
+	h.press(down)
+	h.src.departures = 1
+
+	h.press(letter('r'))
+
+	if len(h.m.routes) != 1 {
+		t.Errorf("kept %d routes for a board of one train", len(h.m.routes))
+	}
+	h.press(esc, letter('s'))
+	if len(h.m.routes) != 0 {
+		t.Errorf("a new trip kept %d routes of the old board", len(h.m.routes))
+	}
+}
+
+func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+
+	h.press(letter('d'), down, down)
+
+	if len(h.src.routes) != 0 {
+		t.Errorf("a narrow board fetched routes: %v", h.src.routes)
+	}
 }
 
 func TestQuits(t *testing.T) {

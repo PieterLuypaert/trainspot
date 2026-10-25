@@ -51,9 +51,15 @@ func (m Model) size() (width, height int) {
 	return max(width, minWidth), max(height, minHeight)
 }
 
+// inside is the room within the frame's borders.
+func (m Model) inside() (width, room int) {
+	width, height := m.size()
+	return width - 4, height - 2
+}
+
 func (m Model) render() string {
 	width, height := m.size()
-	inner, room := width-4, height-2
+	inner, room := m.inside()
 	clock := faint.Render(m.cfg.Now().In(m.cfg.Location).Format("Mon 2 Jan 15:04"))
 	switch m.screen {
 	case journeys:
@@ -294,8 +300,15 @@ func (m Model) departuresBody(width, room int) []string {
 	case m.board.Updated.IsZero() && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
-	head, rows, tail, shown := m.departuresView(width, room)
-	return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
+	left := boardWidth(width)
+	head, rows, tail, shown := m.departuresView(left, room)
+	if left == width {
+		return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
+	}
+	// In a wide window the chosen train's route stands beside the board.
+	departures := append(head, scrollBody(rows, nil, shown, m.boardScroll)...)
+	route := m.peekLines(width-left-lipgloss.Width(divider), room-len(tail))
+	return append(sideBySide(departures, route, left), tail...)
 }
 
 // departuresView lays the board out for the window: the column titles,
@@ -318,8 +331,8 @@ func (m Model) departuresView(width, room int) (head, rows, tail []string, shown
 // departure in view.
 func (m *Model) showBoardChoice() {
 	m.boardChoice = max(0, min(m.boardChoice, len(m.board.Departures)-1))
-	width, height := m.size()
-	_, rows, _, shown := m.departuresView(width-4, height-2)
+	width, room := m.inside()
+	_, rows, _, shown := m.departuresView(boardWidth(width), room)
 	if m.boardChoice < m.boardScroll {
 		m.boardScroll = m.boardChoice
 	}
@@ -448,18 +461,19 @@ func (m Model) routeTitle() string {
 // routeBody returns every stop of the chosen train's run, and the legend
 // and status line that must stay in view.
 func (m Model) routeBody(width int) (main, tail []string) {
+	r := m.routes[departureKey(m.routeOf)].route
 	switch {
-	case len(m.route.Stops) == 0 && m.loading():
+	case len(r.Stops) == 0 && m.loading():
 		return []string{"", indent + faint.Render("Looking up the train's route…")}, nil
-	case len(m.route.Stops) == 0 && m.err != nil:
+	case len(r.Stops) == 0 && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the train's route: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
-	case len(m.route.Stops) < 2:
+	case len(r.Stops) < 2:
 		return []string{"", indent + "iRail has no route for this train."}, nil
 	}
 	mark := board.Mark{Station: m.boardStation(), At: m.routeOf.Scheduled}
-	lines, legend := board.RouteStops(m.route, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}, mark)
-	tail = m.tail(legend.Lines(width), board.Footer(m.route.Updated, m.cfg.Location))
-	return append([]string{"", indent + board.RouteSummary(m.route), ""}, lines...), tail
+	lines, legend := board.RouteStops(r, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}, mark)
+	tail = m.tail(legend.Lines(width), board.Footer(r.Updated, m.cfg.Location))
+	return append([]string{"", indent + board.RouteSummary(r), ""}, lines...), tail
 }
 
 // boardStation is the name of the station whose board is on hand, as iRail
@@ -475,13 +489,13 @@ func (m Model) boardStation() string {
 // lines, the part that stays in view, and how many lines show above that
 // part.
 func (m Model) scrollView() (main, tail []string, shown int) {
-	width, height := m.size()
+	width, room := m.inside()
 	if m.screen == route {
-		main, tail = m.routeBody(width - 4)
+		main, tail = m.routeBody(width)
 	} else {
-		main, tail = m.stopsBody(width - 4)
+		main, tail = m.stopsBody(width)
 	}
-	if space := height - 2 - len(tail); len(main) > space {
+	if space := room - len(tail); len(main) > space {
 		return main, tail, max(0, space-1)
 	}
 	return main, tail, len(main)

@@ -47,7 +47,8 @@ for each change the time you have and the platforms to walk between. A stop the 
 skips, or where it now ends, is marked.
 When the journey's first train has left, trainspot keeps following its trains live.
 `d` shows the departure board of where the trip starts; there, choose a train with the
-arrow keys and press enter to see its whole run and where it is now. `s` swaps the two
+arrow keys to see its whole run and where it is now, beside the board in a wide window or
+with enter in a narrow one. `s` swaps the two
 stations, `e` edits them and `r` fetches everything again; it also refreshes by itself
 every minute. trainspot remembers your last five trips in `~/.config/trainspot` and opens on
 the last one the next time, so your daily trip is one word away.
