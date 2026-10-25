@@ -55,8 +55,8 @@ func sampleTrip() irail.Trip {
 }
 
 type fakeSource struct {
-	trips, boards []string
-	tripErr       error
+	trips, boards     []string
+	tripErr, boardErr error
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -69,6 +69,9 @@ func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.
 
 func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Liveboard, error) {
 	f.boards = append(f.boards, stationID)
+	if f.boardErr != nil {
+		return irail.Liveboard{}, f.boardErr
+	}
 	return irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36"), Departures: []irail.Departure{
 		{Destination: "Oostende", Scheduled: at("16:49"), Platform: "11", Train: "IC 535"},
 	}}, nil
@@ -319,12 +322,74 @@ func TestRefreshesEveryMinute(t *testing.T) {
 }
 
 func TestDropsAnAnswerForATripThatChanged(t *testing.T) {
-	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID})
+	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID, TickEvery: time.Nanosecond})
+	first := m.Init()
 
-	next, _ := m.Update(tripMsg{fromID: brusselID, toID: aarlenID, trip: sampleTrip()})
+	next, _ := m.Update(letter('s'))
+	for _, msg := range run(t, first) {
+		if _, tick := msg.(tickMsg); !tick {
+			next, _ = next.Update(msg)
+		}
+	}
 
-	if screen := ansi.Strip(next.(Model).View().Content); !strings.Contains(screen, "Looking up journeys…") {
-		t.Errorf("an answer for another trip was shown:\n%s", screen)
+	screen := ansi.Strip(next.(Model).View().Content)
+	if !strings.Contains(screen, "Aarlen → Gent-Sint-Pieters") || !strings.Contains(screen, "Looking up journeys…") {
+		t.Errorf("the answer for the trip before the swap was shown:\n%s", screen)
+	}
+}
+
+func TestLeavingTheDeparturesBeforeTheyArriveDoesNotHang(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	next, boardFetch := h.m.Update(letter('d'))
+	h.m = next.(Model)
+
+	h.press(letter('e'), esc)
+	for _, msg := range run(t, boardFetch) {
+		h.send(msg)
+	}
+
+	if strings.Contains(h.screen(), "updating…") {
+		t.Fatalf("the journeys wait for the departures' answer:\n%s", h.screen())
+	}
+	asked := len(h.src.trips)
+	h.press(letter('r'))
+	if len(h.src.trips) != asked+1 {
+		t.Errorf("r did not fetch the journeys again")
+	}
+}
+
+func TestReusesFreshDataWhenSwitchingScreens(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+
+	h.press(letter('d'), esc, letter('d'), esc)
+
+	if len(h.src.trips) != 1 || len(h.src.boards) != 1 {
+		t.Errorf("asked for journeys %d and departures %d times within the minute, want once each", len(h.src.trips), len(h.src.boards))
+	}
+	h.now = h.now.Add(time.Minute)
+	h.press(letter('d'))
+	if len(h.src.boards) != 2 {
+		t.Errorf("departures older than a minute were not fetched again")
+	}
+}
+
+func TestLeavesNoNoteOrErrorBehindWhenSwitching(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+
+	h.press(letter('e'), tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("gent sint")
+	h.press(enter)
+	h.wantOnScreen("From and To are the same station")
+	h.press(esc)
+	h.wantOnScreen("Live NMBS data via iRail, updated 16:36")
+
+	h.src.boardErr = errors.New("no network")
+	h.now = h.now.Add(time.Minute)
+	h.press(letter('d'))
+	h.wantOnScreen("Could not get the departures: no network")
+	h.press(esc)
+	if strings.Contains(h.screen(), "no network") {
+		t.Errorf("the departures' error shows on the journeys:\n%s", h.screen())
 	}
 }
 

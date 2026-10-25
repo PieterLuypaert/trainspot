@@ -62,7 +62,7 @@ var (
 
 func (m Model) planningKeys() []key {
 	back := key{"esc", "quit"}
-	if m.hasTrip {
+	if m.hasTrip() {
 		back = key{"esc", "back"}
 	}
 	return []key{{"tab", "next field"}, {"↑↓", "choose"}, {"enter", "search"}, back}
@@ -161,7 +161,7 @@ func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string
 func (m Model) journeysBody(width int) []string {
 	list := m.trip.Journeys
 	switch {
-	case len(list) == 0 && m.loading:
+	case len(list) == 0 && m.loading():
 		return []string{"", indent + faint.Render("Looking up journeys…")}
 	case len(list) == 0 && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the journeys: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
@@ -186,7 +186,7 @@ func (m Model) journeysBody(width int) []string {
 
 func (m Model) departuresBody(width int) []string {
 	switch {
-	case m.board.Updated.IsZero() && m.loading:
+	case m.board.Updated.IsZero() && m.loading():
 		return []string{"", indent + faint.Render("Looking up departures…")}
 	case m.board.Updated.IsZero() && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
@@ -201,7 +201,7 @@ func (m Model) departuresBody(width int) []string {
 // its way, or one that failed while the older data stays on screen.
 func (m Model) status(source string) string {
 	switch {
-	case m.loading:
+	case m.loading():
 		return indent + faint.Render("updating…")
 	case m.err != nil:
 		return indent + alarm.Render("could not refresh: "+m.err.Error())
