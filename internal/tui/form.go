@@ -145,18 +145,18 @@ func (m Model) previewLines(width, rows int) []string {
 // previewBoard draws as many of the next departures as fit in rows, with
 // the legend for those alone, so it explains only what shows.
 func (m Model) previewBoard(width, rows int) (lines, legend []string) {
-	o := board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}
-	shown := m.preview
-	lines, legend = board.DepartureLines(shown, o)
-	if len(lines)+len(legend) <= rows || len(shown.Departures) <= 1 {
+	lines, all := board.DepartureLines(m.preview, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	legend = all.Lines(width)
+	if len(lines)+len(legend) <= rows || len(m.preview.Departures) <= 1 {
 		return lines, legend
 	}
-	// The column titles and the line about the rest take two rows. Fewer
-	// departures never need more legend than all of them.
-	shown.Departures = shown.Departures[:max(1, rows-2-len(legend))]
-	lines, legend = board.DepartureLines(shown, o)
-	more := len(m.preview.Departures) - len(shown.Departures)
-	return append(lines, indent+faint.Render(fmt.Sprintf("… %d more; a taller window shows them", more))), legend
+	// The column titles and the line about the rest take two rows. The
+	// legend of the departures shown never takes more lines than that of
+	// all of them.
+	shown := max(1, rows-2-len(legend))
+	more := len(m.preview.Departures) - shown
+	lines = append(lines[:1+shown:1+shown], indent+faint.Render(fmt.Sprintf("… %d more; a taller window shows them", more)))
+	return lines, all.In(lines).Lines(width)
 }
 
 // previewStatus says when the departures beside the form came, or that a

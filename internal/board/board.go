@@ -52,25 +52,23 @@ var (
 )
 
 func Render(b irail.Liveboard, o Options) string {
-	rows, legendLines := DepartureLines(b, o)
+	rows, legend := DepartureLines(b, o)
 	lines := append([]string{boardHeader(o), ""}, rows...)
-	lines = append(append(lines, ""), legendLines...)
+	lines = append(append(lines, ""), legend.Lines(o.Width)...)
 	lines = append(lines, Footer(b.Updated, o.Location))
 	return strings.Join(lines, "\n") + "\n"
 }
 
 // DepartureLines draws the board without its header and source line, for
 // a caller that frames it: the rows under their column titles, or a note
-// that nothing leaves, and the legend. Every line is indented.
-func DepartureLines(b irail.Liveboard, o Options) (rows, legendLines []string) {
+// that nothing leaves, and the legend for the marks on them. Every line is
+// indented.
+func DepartureLines(b irail.Liveboard, o Options) ([]string, Legend) {
 	if len(b.Departures) == 0 {
-		return []string{indent + "No departures are listed right now."}, nil
+		return []string{indent + "No departures are listed right now."}, Legend{}
 	}
 	rows, notes := departures(b.Departures, o)
-	for _, line := range legend(notes, o.Width) {
-		legendLines = append(legendLines, indent+line)
-	}
-	return rows, legendLines
+	return rows, Legend{notes}
 }
 
 // boardHeader gives up the clock, then the local name, before it shortens
@@ -333,7 +331,7 @@ var layouts = [][]column{
 
 // departures draws the rows and returns the legend notes for the marks
 // that ended up in them.
-func departures(list []irail.Departure, o Options) ([]string, []string) {
+func departures(list []irail.Departure, o Options) ([]string, []note) {
 	columns, widths := fit(list, o)
 	titles := indent
 	for i, c := range columns {
@@ -351,7 +349,7 @@ func departures(list []irail.Departure, o Options) ([]string, []string) {
 		}
 		rows = append(rows, row)
 	}
-	return rows, noteTexts(notes)
+	return rows, notes
 }
 
 // fit picks the widest layout that fits o.Width. Optional columns go
