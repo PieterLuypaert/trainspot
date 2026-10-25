@@ -63,7 +63,7 @@ type JourneyLines struct {
 }
 
 func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
-	v := newJourneyView(list, o)
+	v := newJourneyView(list, o, false)
 	var l JourneyLines
 	var summaries [][]string
 	changes := make([][]irail.Change, len(list))
@@ -91,6 +91,40 @@ func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 	return l
 }
 
+// JourneyStops draws every stop of one journey: per leg its train, where
+// it leaves, each station on the way and where it arrives, with the
+// changes in between, and the legend for what it shows. Stations the train
+// has passed are dimmed, so the list shows roughly where it is.
+func JourneyStops(j irail.Journey, o JourneyOptions) (lines, legendLines []string) {
+	v := newJourneyView([]irail.Journey{j}, o, true)
+	changes := j.Changes()
+	for i, leg := range j.Legs {
+		if i > 0 && !leg.Walking {
+			lines = append(lines, v.change(changes[0]))
+			changes = changes[1:]
+		}
+		lines = append(lines, indent+legHeader(leg), v.stop(leg.Departure, ""))
+		for _, c := range leg.Calls {
+			lines = append(lines, v.call(c))
+		}
+		lines = append(lines, v.stop(leg.Arrival, ""))
+	}
+	for i := range lines {
+		lines[i] = clip(lines[i], o.Width)
+	}
+	return lines, v.legendLines(v.notes)
+}
+
+func legHeader(leg irail.Leg) string {
+	switch {
+	case leg.Walking:
+		return faint.Render("walk")
+	case leg.Direction != "":
+		return bold.Render(leg.Train) + faint.Render(" to "+leg.Direction)
+	}
+	return bold.Render(leg.Train)
+}
+
 type journeyView struct {
 	o JourneyOptions
 	// Widths of the delay, station and platform columns of the stop lines.
@@ -98,16 +132,19 @@ type journeyView struct {
 	notes                    []note
 }
 
-func newJourneyView(list []irail.Journey, o JourneyOptions) *journeyView {
+// newJourneyView sizes the columns for the stops of the journeys, and for
+// the calls on the way too when withCalls is set.
+func newJourneyView(list []irail.Journey, o JourneyOptions, withCalls bool) *journeyView {
 	v := &journeyView{o: o}
 	for _, j := range list {
 		for _, leg := range j.Legs {
 			for _, s := range []irail.Stop{leg.Departure, leg.Arrival} {
-				if !s.Cancelled {
-					v.delay = max(v.delay, lipgloss.Width(delayText(s.Delay)))
+				v.fit(s.Delay, s.Station, platformCell(s.Platform, s.PlatformChanged, s.Cancelled), s.Cancelled)
+			}
+			for _, c := range leg.Calls {
+				if withCalls {
+					v.fit(c.DepartureDelay, callMark+c.Station, platformCell(c.Platform, c.PlatformChanged, c.Cancelled), c.Cancelled)
 				}
-				v.station = max(v.station, lipgloss.Width(s.Station))
-				v.platform = max(v.platform, lipgloss.Width(platformCell(s.Platform, s.PlatformChanged, s.Cancelled).text))
 			}
 		}
 	}
@@ -115,6 +152,14 @@ func newJourneyView(list []irail.Journey, o JourneyOptions) *journeyView {
 		v.station = max(minStation, room)
 	}
 	return v
+}
+
+func (v *journeyView) fit(delay time.Duration, station string, platform cell, cancelled bool) {
+	if !cancelled {
+		v.delay = max(v.delay, lipgloss.Width(delayText(delay)))
+	}
+	v.station = max(v.station, lipgloss.Width(station))
+	v.platform = max(v.platform, lipgloss.Width(platform.text))
 }
 
 // beforeStation is how far in the station column starts.
@@ -210,17 +255,53 @@ func legLabel(leg irail.Leg) string {
 	return leg.Train
 }
 
+// stop draws where a leg leaves or arrives. A stop the train has passed
+// is dimmed.
 func (v *journeyView) stop(s irail.Stop, label string) string {
-	timeStyle, delay := faint, ""
-	if s.Cancelled {
+	style, delay := plain, ""
+	switch {
+	case s.Cancelled:
+		style = faint
 		label = strings.TrimSpace(label + "  " + alarm.Render("cancelled"))
-	} else {
-		timeStyle, delay = plain, v.delayMark(s.Delay, "")
+	case s.Passed:
+		style, delay = faint, v.delayMark(s.Delay, "")
+	default:
+		delay = v.delayMark(s.Delay, "")
 	}
-	platform := platformCell(s.Platform, s.PlatformChanged, s.Cancelled)
+	platform := platformCell(s.Platform, s.PlatformChanged, s.Cancelled || s.Passed)
+	return v.line(style, s.Scheduled, delay, s.Station, platform, label)
+}
+
+// callMark sets the stations on the way apart from where legs leave and
+// arrive.
+const callMark = "· "
+
+// call draws a station the train stops at on the way, with its departure
+// time; dimmed once the train has left it.
+func (v *journeyView) call(c irail.Call) string {
+	style, delay, label := plain, v.delayMark(c.DepartureDelay, ""), ""
+	switch {
+	case c.Cancelled:
+		style, delay, label = faint, "", alarm.Render("cancelled")
+	case c.Extra:
+		label = faint.Render("extra stop")
+	}
+	if c.Passed {
+		style = faint
+	}
+	// NMBS rarely knows the platforms on the way, and a column of dashes
+	// would only be noise.
+	platform := cell{}
+	if c.Platform != "" {
+		platform = platformCell(c.Platform, c.PlatformChanged, c.Cancelled || c.Passed)
+	}
+	return v.line(style, c.Departure, delay, callMark+c.Station, platform, label)
+}
+
+func (v *journeyView) line(style lipgloss.Style, at time.Time, delay, station string, platform cell, label string) string {
 	v.notes = addNote(v.notes, platform.note)
-	line := stopIndent + timeStyle.Render(clock(s.Scheduled, v.o.Location)) + v.delayColumn(delay) + gap +
-		pad(ansi.Truncate(s.Station, v.station, "…"), v.station, false) +
+	line := stopIndent + style.Render(clock(at, v.o.Location)) + v.delayColumn(delay) + gap +
+		pad(style.Render(ansi.Truncate(station, v.station, "…")), v.station, false) +
 		pad(platform.style.Render(platform.text), v.platform, label == "")
 	if label != "" {
 		if room := v.o.Width - lipgloss.Width(line); room > 0 {

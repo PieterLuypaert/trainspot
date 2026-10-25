@@ -223,3 +223,57 @@ func TestADayDoesNotPushAMissedChangeOffANarrowTerminal(t *testing.T) {
 		t.Errorf("the missed change was cut:\n%s", out)
 	}
 }
+
+func TestJourneyStopsListEveryStationOnTheWay(t *testing.T) {
+	passed := irail.Call{Station: "Wetteren", Departure: at("15:25"), DepartureDelay: 3 * time.Minute, Passed: true}
+	skipped := irail.Call{Station: "Aalst", Departure: at("15:44"), Cancelled: true}
+	extra := irail.Call{Station: "Denderleeuw", Departure: at("15:52"), Extra: true}
+	boarded := stop("Gent-Sint-Pieters", "15:13", 5, "6")
+	boarded.Passed = true
+	j := irail.Journey{Legs: []irail.Leg{
+		{Train: "IC 3614", Direction: "Leuven", Departure: boarded, Calls: []irail.Call{passed, skipped, extra}, Arrival: stop("Brussel-Zuid", "16:07", 0, "14")},
+		{Train: "IC 2117", Direction: "Luxemburg", Departure: stop("Brussel-Zuid", "16:13", 0, "15"),
+			Calls: []irail.Call{{Station: "Brussel-Centraal", Departure: at("16:18")}}, Arrival: stop("Aarlen", "19:22", 0, "2")},
+	}}
+
+	raw, legend := JourneyStops(j, JourneyOptions{Width: 80, Now: at("15:30"), Location: brussels})
+	lines := strings.Split(ansi.Strip(strings.Join(raw, "\n")), "\n")
+
+	want := []string{
+		"  IC 3614 to Leuven",
+		"    15:13 +5  Gent-Sint-Pieters   6",
+		"    15:25 +3  · Wetteren",
+		"    15:44     · Aalst                 cancelled",
+		"    15:52     · Denderleeuw           extra stop",
+		"    16:07     Brussel-Zuid        14",
+		"              change 6 min",
+		"  IC 2117 to Luxemburg",
+		"    16:13     Brussel-Zuid        15",
+		"    16:18     · Brussel-Centraal",
+		"    19:22     Aarlen              2",
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("stops =\n%s\nwant\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+	if !strings.Contains(raw[2], faint.Render("· Wetteren")) {
+		t.Errorf("a passed station is not dimmed: %q", raw[2])
+	}
+	if text := ansi.Strip(strings.Join(legend, " ")); !strings.Contains(text, "min late") {
+		t.Errorf("legend = %q", text)
+	}
+}
+
+func TestJourneyStopsFitANarrowTerminal(t *testing.T) {
+	j := irail.Journey{Legs: []irail.Leg{{Train: "IC 2215", Direction: "Brussels Airport - Zaventem",
+		Departure: stop("Gent-Sint-Pieters", "15:00", 0, "4"),
+		Calls:     []irail.Call{{Station: "Brussels Airport - Zaventem", Departure: at("15:40"), DepartureDelay: 12 * time.Minute}},
+		Arrival:   stop("Leuven", "16:00", 0, "2")}}}
+
+	lines, _ := JourneyStops(j, JourneyOptions{Width: 36, Now: at("14:52"), Location: brussels})
+
+	for _, l := range lines {
+		if w := ansi.StringWidth(l); w > 36 {
+			t.Errorf("line is %d wide: %q", w, ansi.Strip(l))
+		}
+	}
+}
