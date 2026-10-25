@@ -35,6 +35,7 @@ var testStations = map[string]string{
 type fakeIRail struct {
 	liveboards   []url.Values
 	liveboardErr int
+	journeys     []url.Values
 }
 
 func (f *fakeIRail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +56,11 @@ func (f *fakeIRail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"station":"x","timestamp":"1792936000","departures":{"departure":[
 			{"station":"Brugge","time":"1792936320","delay":"0","canceled":"0","left":"0","isExtra":"0",
 			 "platform":"6","platforminfo":{"name":"6","normal":"1"},"vehicleinfo":{"shortname":"IC 535"},"occupancy":{"name":"low"}}]}}`)
+	case "/connections/":
+		f.journeys = append(f.journeys, query)
+		fmt.Fprint(w, `{"connection":[{
+			"departure":{"station":"Gent-Sint-Pieters","time":"1792936320","delay":"120","canceled":"0","walking":"0","vehicle":"BE.NMBS.IC535","vehicleinfo":{"shortname":"IC 535"},"platform":"11","direction":{"name":"Oostende"}},
+			"arrival":{"station":"Brugge","time":"1792937820","delay":"0","canceled":"0","walking":"0","platform":"4"}}]}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -100,6 +106,30 @@ func TestShowsTheDeparturesFromAStation(t *testing.T) {
 	}
 	if got := r.iRail.liveboards[0]; got.Get("id") != "BE.NMBS.008892007" || got.Get("lang") != "nl" {
 		t.Errorf("liveboard asked for %v", got)
+	}
+}
+
+func TestShowsTheJourneysBetweenTwoStations(t *testing.T) {
+	r := runWith(t, []string{"gent", "sint", "pieters", "--to", "brugge"}, "", true, &fakeIRail{})
+
+	if r.code != 0 || len(r.iRail.liveboards) != 0 {
+		t.Fatalf("code %d, liveboards %v, err:\n%s", r.code, r.iRail.liveboards, r.err)
+	}
+	for _, want := range []string{"Gent-Sint-Pieters → Brugge", "14:52 +2 → 15:17   23 min   direct", "IC 535 to Oostende"} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("no %q in\n%s", want, r.out)
+		}
+	}
+	if got := r.iRail.journeys[0]; got.Get("from") != "BE.NMBS.008892007" || got.Get("to") != "BE.NMBS.008891009" {
+		t.Errorf("journeys asked for %v", got)
+	}
+}
+
+func TestRefusesAJourneyToTheSameStation(t *testing.T) {
+	r := runWith(t, []string{"bergen", "--to", "mons"}, "", true, &fakeIRail{})
+
+	if r.code != 2 || !strings.Contains(r.err, "Bergen is both where the journey starts and ends") || len(r.iRail.journeys) != 0 {
+		t.Errorf("code %d, err:\n%s", r.code, r.err)
 	}
 }
 
@@ -207,6 +237,9 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"--lang", "fr", "liège", "guillemins"}, options{query: "liège guillemins", lang: "fr"}, ""},
 		{[]string{"luik", "--no-color", "guillemins", "-lang=de"}, options{query: "luik guillemins", lang: "de", noColor: true}, ""},
 		{[]string{"--lang", "fr", "--", "gent", "--lang", "de"}, options{query: "gent --lang de", lang: "fr"}, ""},
+		{[]string{"gent", "--to", "brussel", "zuid", "--lang", "fr"}, options{query: "gent", to: "brussel zuid", lang: "fr"}, ""},
+		{[]string{"--no-color", "luik", "-to=namen", "--", "-x"}, options{query: "luik", to: "namen -x", lang: "nl", noColor: true}, ""},
+		{[]string{"gent", "--to"}, options{}, "--to needs the name of a station"},
 		{[]string{"-h"}, options{lang: "nl", help: true}, ""},
 		{[]string{"--version"}, options{lang: "nl", version: true}, ""},
 		{[]string{"gent", "--lang", "es"}, options{}, `--lang takes nl, fr, en or de, not "es"`},
