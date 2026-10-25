@@ -146,7 +146,7 @@ var (
 			return cell{text: "cancelled", style: alarm}
 		case d.Departed:
 			return cell{text: "departed", style: faint}
-		case minutesLate(d) == 0:
+		case minutesLate(d) <= 0:
 			return cell{text: "on time", style: green}
 		case d.Delay < lateAfter:
 			return lateCell(d, o, yellow)

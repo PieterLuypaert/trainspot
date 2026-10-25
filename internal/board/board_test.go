@@ -140,6 +140,18 @@ func TestRenderLeavesOutTheCrowdColumnWithoutEstimates(t *testing.T) {
 	}
 }
 
+func TestRenderShowsAnEarlyTrainAsOnTime(t *testing.T) {
+	b := irail.Liveboard{Updated: at("14:52"), Departures: []irail.Departure{
+		{Destination: "Leuven", Scheduled: at("15:13"), Delay: -time.Minute, Platform: "9", Train: "IC 3613"},
+	}}
+
+	out := render(b, 100)
+
+	if row := line(t, out, "Leuven"); !strings.Contains(row, "on time") || strings.Contains(row, "+") {
+		t.Errorf("early train row = %q", row)
+	}
+}
+
 func TestRenderFitsNarrowTerminals(t *testing.T) {
 	cases := []struct {
 		width   int
