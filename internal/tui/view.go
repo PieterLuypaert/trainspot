@@ -227,12 +227,7 @@ func (m Model) departuresBody(width, room int) []string {
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
 	head, rows, tail, shown := m.departuresView(width, room)
-	if shown >= len(rows) {
-		return append(append(head, rows...), tail...)
-	}
-	first := max(0, min(m.boardScroll, len(rows)-shown))
-	body := append(append(head, rows[first:first+shown]...), moreLine(first, len(rows)-first-shown))
-	return append(body, tail...)
+	return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
 }
 
 // departuresView lays the board out for the window: the column titles,
@@ -241,13 +236,8 @@ func (m Model) departuresBody(width, room int) []string {
 func (m Model) departuresView(width, room int) (head, rows, tail []string, shown int) {
 	lines, legend := board.DepartureLines(m.board, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
 	head, rows = []string{"", lines[0]}, slices.Clone(lines[1:])
-	if len(m.board.Departures) == 0 {
-		rows = nil
-	}
-	for i := range rows {
-		if i == m.boardChoice {
-			rows[i] = bold.Render("▸ ") + strings.TrimPrefix(rows[i], indent)
-		}
+	if m.boardChoice < len(rows) {
+		rows[m.boardChoice] = bold.Render("▸ ") + strings.TrimPrefix(rows[m.boardChoice], indent)
 	}
 	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.board.Updated, m.cfg.Location)))
 	if space := room - len(head) - len(tail); len(rows) > space {

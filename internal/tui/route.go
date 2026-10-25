@@ -29,9 +29,9 @@ type followMsg struct {
 }
 
 func (m Model) toRoute(d irail.Departure) (tea.Model, tea.Cmd) {
-	m.screen, m.waiting, m.err, m.note = route, 0, nil, ""
+	m.screen, m.waiting, m.err, m.note, m.scroll = route, 0, nil, "", 0
 	if d.Vehicle != m.routeOf.Vehicle || !d.Scheduled.Equal(m.routeOf.Scheduled) {
-		m.route, m.routeAt, m.scroll = irail.Route{}, time.Time{}, 0
+		m.route, m.routeAt = irail.Route{}, time.Time{}
 	}
 	m.routeOf = d
 	if !m.stale(m.routeAt) {

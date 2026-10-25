@@ -163,14 +163,22 @@ func (m Model) stale(t time.Time) bool {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	m = next.(Model)
-	// A resize or a refresh can shorten what there is to scroll through.
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.WindowSizeMsg, tripMsg, boardMsg, routeMsg, followMsg:
+		m.keepInView()
+	}
+	return m, cmd
+}
+
+// keepInView holds the scroll within what there is to scroll through and
+// the chosen departure on screen, after a key, a resize or new data.
+func (m *Model) keepInView() {
 	switch m.screen {
 	case stops, route:
 		m.scroll = min(m.scroll, m.maxScroll())
 	case departures:
 		m.showBoardChoice()
 	}
-	return m, cmd
 }
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -224,7 +232,8 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	if m.loading() || !m.stale(m.triedAt) {
 		return m, next
 	}
-	return m, tea.Batch(m.fetch(), next)
+	fetch := m.fetch()
+	return m, tea.Batch(fetch, next)
 }
 
 // fetch asks iRail for what the screen on view shows.

@@ -706,6 +706,19 @@ func TestSaysSoWhenNoTrainOfTheJourneyCanBeFollowed(t *testing.T) {
 	h.wantOnScreen("IC 3615 to Leuven", "could not refresh: not found")
 }
 
+func TestARouteOpensAtTheTopAfterScrollingTheStops(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 9})
+	h.press(enter, down, down, down, down, down, esc)
+
+	h.press(letter('d'), enter)
+
+	h.wantOnScreen("17:13  Gent-Sint-Pieters")
+	if h.m.scroll != 0 {
+		t.Errorf("the route opened scrolled %d lines down", h.m.scroll)
+	}
+}
+
 func TestQuits(t *testing.T) {
 	for name, keys := range map[string][]tea.KeyPressMsg{
 		"ctrl+c on the form":     {ctrlC},
