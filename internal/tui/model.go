@@ -54,9 +54,11 @@ const (
 )
 
 const (
-	refreshEvery   = time.Minute
-	tickEvery      = 15 * time.Second
-	maxSuggestions = 6
+	refreshEvery = time.Minute
+	tickEvery    = 15 * time.Second
+	// minSuggestions is how many suggestions the form shows at least, when
+	// there are that many; a taller window shows more.
+	minSuggestions = 6
 )
 
 type Model struct {
@@ -307,7 +309,7 @@ func (m Model) planningKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.choice = max(0, m.choice-1)
 		return m, nil
 	case "down":
-		m.choice = max(0, min(len(m.suggested)-1, m.choice+1))
+		m.choice = max(0, min(m.shownSuggestions()-1, m.choice+1))
 		return m, nil
 	case "enter":
 		return m.confirm(true)
@@ -349,9 +351,7 @@ func (m *Model) suggest() {
 	m.suggested, _ = m.cfg.Stations.Lookup(f.text, m.cfg.Lang)
 	if len(m.suggested) == 0 {
 		m.suggested, m.typos = m.cfg.Stations.Suggest(f.text, m.cfg.Lang, 3), true
-		return
 	}
-	m.suggested = m.suggested[:min(len(m.suggested), maxSuggestions)]
 }
 
 // confirm picks the highlighted suggestion and moves to the other field.

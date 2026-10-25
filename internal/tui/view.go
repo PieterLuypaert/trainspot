@@ -187,17 +187,39 @@ func (m Model) suggestionLines(width int) []string {
 		}
 		lines = append(lines, pad+faint.Render(fmt.Sprintf("no station is called %q; did you mean:", query)))
 	}
+	shown := list[:m.shownSuggestions()]
 	nameWidth := 0
-	for _, s := range list {
+	for _, s := range shown {
 		nameWidth = max(nameWidth, lipgloss.Width(s.Name(m.cfg.Lang)))
 	}
-	for i, s := range list {
-		lines = append(lines, ansi.Truncate(pad+m.suggestion(s, i == m.choice, nameWidth), width, "…"))
+	// The local names and "abroad" go when only a stub of them would fit.
+	withNotes := width-len(pad)-2-nameWidth-2 >= minNotesWidth
+	for i, s := range shown {
+		lines = append(lines, ansi.Truncate(pad+m.suggestion(s, i == m.choice, nameWidth, withNotes), width, "…"))
+	}
+	if more := len(list) - len(shown); more > 0 {
+		lines = append(lines, pad+faint.Render(fmt.Sprintf("… %d more; type more of the name", more)))
 	}
 	return lines
 }
 
-func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string {
+// shownSuggestions is how many suggestions the form shows: all that fit
+// beside the fields and the recent trips, and at least minSuggestions.
+func (m Model) shownSuggestions() int {
+	_, room := m.inside()
+	// The blank line over the fields and the two fields take three rows.
+	space := room - 3 - len(m.recentLines())
+	if len(m.suggested) <= space {
+		return len(m.suggested)
+	}
+	// One more row says how many are left out.
+	return min(len(m.suggested), max(minSuggestions, space-1))
+}
+
+// minNotesWidth is the least room a suggestion's notes get.
+const minNotesWidth = 8
+
+func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int, withNotes bool) string {
 	name := s.Name(m.cfg.Lang)
 	name += strings.Repeat(" ", nameWidth-lipgloss.Width(name))
 	marker := "  "
@@ -211,7 +233,7 @@ func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string
 	if !s.Belgian() {
 		notes = append(notes, "abroad")
 	}
-	if len(notes) == 0 {
+	if len(notes) == 0 || !withNotes {
 		return strings.TrimRight(marker+name, " ")
 	}
 	return marker + name + "  " + faint.Render(strings.Join(notes, " · "))

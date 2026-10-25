@@ -897,6 +897,59 @@ func screenRow(h *harness, text string) string {
 	return row
 }
 
+func manyBrusselStations() *stations.Directory {
+	var list []stations.Station
+	for i, name := range []string{"Centraal", "Congres", "Kapellekerk", "Luxemburg", "Noord", "Schuman", "West", "Zuid"} {
+		list = append(list, stations.Station{ID: fmt.Sprintf("BE.NMBS.0088100%02d", i), Names: map[string]string{"nl": "Brussel-" + name}, Standard: "Brussel-" + name})
+	}
+	return stations.NewDirectory(list)
+}
+
+func TestTheFormSuggestsEveryStationThatFits(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = manyBrusselStations()
+
+	h.typeText("brus")
+
+	h.wantOnScreen("Brussel-Centraal", "Brussel-West", "Brussel-Zuid")
+	if strings.Contains(h.screen(), "more; type more of the name") {
+		t.Errorf("a window with room for all says some are left out:\n%s", h.screen())
+	}
+}
+
+func TestANarrowFormLeavesOutNotesItCannotShow(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = stations.NewDirectory([]stations.Station{
+		{ID: brusselID, Names: map[string]string{"nl": "Brussel-Zuid", "fr": "Bruxelles-Midi"}, Standard: "Brussel-Zuid/Bruxelles-Midi"},
+		{ID: "BE.NMBS.008819406", Names: map[string]string{"nl": "Brussels Airport - Zaventem", "fr": "Bruxelles-Aéroport - Zaventem"}, Standard: "Brussels Airport - Zaventem"},
+	})
+	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
+
+	h.typeText("bru")
+
+	h.wantOnScreen("Brussel-Zuid", "Brussels Airport - Zaventem")
+	if strings.Contains(h.screen(), "Br…") || strings.Contains(h.screen(), "Bruxelles") {
+		t.Errorf("local names show in a form too narrow for them:\n%s", h.screen())
+	}
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
+	h.wantOnScreen("Bruxelles-Midi")
+}
+
+func TestASmallWindowSaysHowManySuggestionsAreLeftOut(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = manyBrusselStations()
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 12})
+	h.typeText("brus")
+
+	h.wantOnScreen("Brussel-Schuman", "… 2 more; type more of the name")
+	for range 10 {
+		h.press(down)
+	}
+	h.press(enter)
+
+	h.wantOnScreen("From  Brussel-Schuman")
+}
+
 // sendOnly updates the model without running the commands it returns, as
 // while their answers are on their way.
 func (h *harness) sendOnly(msg tea.Msg) tea.Cmd {
