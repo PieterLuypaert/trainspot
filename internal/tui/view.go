@@ -57,8 +57,7 @@ func (m Model) render() string {
 	clock := faint.Render(m.cfg.Now().In(m.cfg.Location).Format("Mon 2 Jan 15:04"))
 	switch m.screen {
 	case journeys:
-		main, tail := m.journeysBody(inner)
-		return frame(m.tripTitle(), clock, fitBody(main, tail, room), journeyKeys, width, height)
+		return frame(m.tripTitle(), clock, m.journeysBody(inner, room), journeyKeys, width, height)
 	case departures:
 		return frame(m.departuresTitle(), clock, m.departuresBody(inner, room), departureKeys, width, height)
 	case stops:
@@ -71,19 +70,8 @@ func (m Model) render() string {
 	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
 }
 
-// fitBody keeps the tail, the legend and status line, in view and cuts
-// the main part to the room left, saying how much it left out.
-func fitBody(main, tail []string, room int) []string {
-	if len(main)+len(tail) <= room {
-		return append(main, tail...)
-	}
-	keep := max(0, room-len(tail)-1)
-	note := indent + faint.Render(fmt.Sprintf("… %d more lines; a taller window shows them", len(main)-keep))
-	return append(append(main[:keep:keep], note), tail...)
-}
-
 var (
-	journeyKeys = []key{{name: "↑↓", does: "choose"}, {name: "enter", does: "stops"}, {name: "d", does: "departures"},
+	journeyKeys = []key{{name: "↑↓", does: "choose"}, {name: "enter", does: "all stops"}, {name: "d", does: "departures"},
 		{name: "e", does: "edit"}, {name: "s", does: "swap"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
 	departureKeys = []key{{name: "↑↓", does: "choose"}, {name: "enter", does: "route"}, {name: "esc", does: "journeys"},
 		{name: "e", does: "edit", optional: true}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
@@ -189,32 +177,73 @@ func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string
 	return marker + name + "  " + faint.Render(strings.Join(notes, " · "))
 }
 
-// journeysBody returns the list with the chosen journey's stops, and the
-// legend and status line that must stay in view.
-func (m Model) journeysBody(width int) (main, tail []string) {
-	list := m.trip.Journeys
-	switch {
+// journeysBody lays the journeys out: the list, with the chosen journey's
+// route line beside it in a wide window or under it in a narrow one, and
+// the legend and status line below both.
+func (m Model) journeysBody(width, room int) []string {
+	switch list := m.trip.Journeys; {
 	case len(list) == 0 && m.loading():
-		return []string{"", indent + faint.Render("Looking up journeys…")}, nil
+		return []string{"", indent + faint.Render("Looking up journeys…")}
 	case len(list) == 0 && m.err != nil:
-		return []string{"", indent + alarm.Render("Could not get the journeys: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
+		return []string{"", indent + alarm.Render("Could not get the journeys: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	case len(list) == 0:
-		return []string{"", indent + "No journeys found."}, nil
+		return []string{"", indent + "No journeys found."}
 	}
-	lines := board.LayOutJourneys(list, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Updated: m.trip.Updated, Location: m.cfg.Location})
-	body := []string{""}
+	o := board.JourneyOptions{Width: width, Now: m.cfg.Now(), Updated: m.trip.Updated, Location: m.cfg.Location}
+	if width >= twoPanesWidth {
+		return m.journeyPanes(o, room)
+	}
+	return m.journeyStack(o, room)
+}
+
+const seeAllStops = "enter shows all stops"
+
+// journeyPanes puts the list on the left, as wide as its widest journey
+// but at most half the window, and the chosen journey's route line on the
+// right.
+func (m Model) journeyPanes(o board.JourneyOptions, room int) []string {
+	natural := 0
+	for _, s := range board.LayOutJourneys(m.trip.Journeys, o).Summaries {
+		natural = max(natural, lipgloss.Width(s))
+	}
+	left, right := o, o
+	left.Width = min(natural+len(indent)+1, o.Width/2)
+	right.Width = o.Width - left.Width - lipgloss.Width(divider)
+	list, listLegend := m.journeyList(left)
+	stops, stopsLegend := board.JourneyStops(m.trip.Journeys[m.selected], right)
+	tail := m.journeyTail(listLegend.With(stopsLegend), o.Width)
+	rows := room - len(tail)
+	panes := sideBySide(cut(list, rows, "a taller window shows them"), cut(append([]string{""}, stops...), rows, seeAllStops), left.Width)
+	return append(panes, tail...)
+}
+
+// journeyStack puts the chosen journey's route line under the list, set
+// apart by a rule.
+func (m Model) journeyStack(o board.JourneyOptions, room int) []string {
+	list, listLegend := m.journeyList(o)
+	stops, stopsLegend := board.JourneyStops(m.trip.Journeys[m.selected], o)
+	tail := m.journeyTail(listLegend.With(stopsLegend), o.Width)
+	rule := indent + faint.Render(strings.Repeat("─", max(0, o.Width-2*len(indent))))
+	main := append(append(list, rule), stops...)
+	return append(cut(main, room-len(tail), seeAllStops), tail...)
+}
+
+// journeyList is a summary line per journey, the chosen one marked.
+func (m Model) journeyList(o board.JourneyOptions) ([]string, board.Legend) {
+	lines := board.LayOutJourneys(m.trip.Journeys, o)
+	list := []string{""}
 	for i, summary := range lines.Summaries {
 		marker := indent
 		if i == m.selected {
 			marker = bold.Render("▸ ")
 		}
-		body = append(body, marker+summary)
+		list = append(list, marker+summary)
 	}
-	// The rule sets the selected journey's stops apart from the list.
-	rule := indent + faint.Render(strings.Repeat("─", max(0, width-2*len(indent))))
-	body = append(append(body, rule), lines.Stops[m.selected]...)
-	tail = append(append([]string{""}, lines.Legends[m.selected]...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
-	return body, tail
+	return list, lines.SummaryLegend
+}
+
+func (m Model) journeyTail(legend board.Legend, width int) []string {
+	return append(append([]string{""}, legend.Lines(width)...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
 }
 
 // departuresBody shows the board with the chosen departure marked, the

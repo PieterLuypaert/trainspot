@@ -264,7 +264,7 @@ func TestPlansATripAndShowsItsJourneys(t *testing.T) {
 	h.press(enter)
 
 	h.wantOnScreen("Gent-Sint-Pieters → Aarlen", "▸ 17:13 → 21:22   4h09   1 change", "  18:46 → 22:10   3h24   direct",
-		"─────", "IC 3615 to Leuven", "change 6 min", "IC 2118 to Aarlen", "Live NMBS data via iRail, updated 16:36", "d departures")
+		"─────", "IC 3615 to Leuven", "Change at Brussel-Zuid · 6 min", "IC 2118 to Aarlen", "Live NMBS data via iRail, updated 16:36", "d departures")
 	if strings.Join(h.src.trips, ",") != gentID+">"+aarlenID || strings.Join(h.remembered, ",") != gentID+">"+aarlenID {
 		t.Errorf("asked %v, remembered %v", h.src.trips, h.remembered)
 	}
@@ -617,7 +617,7 @@ func TestKeyHintsMakeWayOnANarrowTerminal(t *testing.T) {
 	}
 
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
-	if bottom := lastLine(); !strings.Contains(bottom, "enter stops") || !strings.Contains(bottom, "q quit") || strings.Contains(bottom, "refresh") {
+	if bottom := lastLine(); !strings.Contains(bottom, "enter all stops") || !strings.Contains(bottom, "q quit") || strings.Contains(bottom, "refresh") {
 		t.Errorf("80 columns: %q", bottom)
 	}
 	h.send(tea.WindowSizeMsg{Width: 120, Height: 24})
@@ -718,6 +718,47 @@ func TestARouteOpensAtTheTopAfterScrollingTheStops(t *testing.T) {
 	if h.m.scroll != 0 {
 		t.Errorf("the route opened scrolled %d lines down", h.m.scroll)
 	}
+}
+
+func TestAWideWindowPutsTheRouteLineBesideTheList(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 130, Height: 30})
+
+	var row string
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "▸ 17:13 → 21:22") {
+			row = l
+		}
+	}
+	if !strings.Contains(row, "IC 3615 to Leuven") {
+		t.Errorf("the chosen journey's train is not beside it: %q", row)
+	}
+	h.wantOnScreen("│  Wetteren", "Change at Brussel-Zuid", "enter all stops")
+	if hasRule(h.screen()) {
+		t.Errorf("a wide window still stacks the panes:\n%s", h.screen())
+	}
+}
+
+// hasRule tells whether a rule runs across the inside of the frame.
+func hasRule(screen string) bool {
+	for _, l := range strings.Split(screen, "\n") {
+		if strings.HasPrefix(l, "│") && strings.Contains(l, "──────────") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestANarrowWindowPutsTheRouteLineUnderTheList(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 40})
+
+	h.wantOnScreen("▸ 17:13 → 21:22", "│  Wetteren", "●  Aarlen")
+	if !hasRule(h.screen()) {
+		t.Errorf("no rule between the list and the route line:\n%s", h.screen())
+	}
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 16})
+	h.wantOnScreen("more lines; enter shows all stops", "Live NMBS data via iRail")
 }
 
 func TestQuits(t *testing.T) {
