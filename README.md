@@ -70,8 +70,8 @@ and asks which one you mean. Typos get suggestions.
 
 ## In scripts
 
-Piped into another command, trainspot prints plain text without colours, and
-`--no-color` does the same in a terminal. Without a terminal to answer, a name that
+Piped into another command, trainspot prints plain text. In a terminal, `--no-color`
+drops the colours and keeps only bold and dim text. Without a terminal to answer, a name that
 fits several stations makes trainspot list them and exit with 2. Problems at iRail
 exit with 1.
 
