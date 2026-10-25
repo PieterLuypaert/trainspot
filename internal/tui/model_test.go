@@ -445,6 +445,18 @@ func TestKeepsTheLegendAndStatusInViewOnAFullBoard(t *testing.T) {
 	}
 }
 
+func TestSaysWhenTheTripCannotBeRemembered(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Remember = func(string, string) error { return errors.New("disk full") }
+
+	h.typeText("gent sint")
+	h.press(enter)
+	h.typeText("aarlen")
+	h.press(enter)
+
+	h.wantOnScreen("▸ 17:13 → 21:22", "could not remember this trip for next time: disk full")
+}
+
 func TestQuits(t *testing.T) {
 	for name, keys := range map[string][]tea.KeyPressMsg{
 		"ctrl+c on the form":     {ctrlC},

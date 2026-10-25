@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
+
+	"github.com/PieterLuypaert/trainspot/internal/files"
 )
 
 // LastTrip is the trip the screen opens on next time, as two station ids.
@@ -37,8 +38,5 @@ func SaveLastTrip(path string, t LastTrip) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
+	return files.WriteAtomic(path, data)
 }

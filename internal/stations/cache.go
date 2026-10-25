@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
+	"github.com/PieterLuypaert/trainspot/internal/files"
 	"github.com/PieterLuypaert/trainspot/internal/irail"
 )
 
@@ -94,32 +94,10 @@ func readCache(path string) (cacheFile, error) {
 	return c, nil
 }
 
-// writeCache writes through a temporary file that reaches the disk before
-// it replaces the list, so neither a crash nor a power cut leaves a
-// half-written list behind.
 func writeCache(path string, c cacheFile) error {
 	data, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "stations-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return files.WriteAtomic(path, data)
 }

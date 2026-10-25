@@ -103,8 +103,6 @@ type boardMsg struct {
 
 type tickMsg time.Time
 
-type rememberedMsg struct{ err error }
-
 func New(cfg Config) Model {
 	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}}
 	from, hasFrom := cfg.Stations.ByID(cfg.From)
@@ -152,10 +150,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.gotTrip(msg)
 	case boardMsg:
 		m.gotBoard(msg)
-	case rememberedMsg:
-		if msg.err != nil {
-			m.note = "could not remember this trip for next time: " + msg.err.Error()
-		}
 	case tea.PasteMsg:
 		if m.screen == planning {
 			m.typed(msg.Content)
@@ -279,11 +273,18 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 	return m.startTrip(*from, *to)
 }
 
+// startTrip shows a new trip and remembers it right away, in order, so
+// that two quick swaps cannot save the wrong one.
 func (m Model) startTrip(from, to stations.Station) (tea.Model, tea.Cmd) {
 	m.setTrip(from, to)
 	m.screen = journeys
+	if m.cfg.Remember != nil {
+		if err := m.cfg.Remember(from.ID, to.ID); err != nil {
+			m.note = "could not remember this trip for next time: " + err.Error()
+		}
+	}
 	fetch := m.fetchTrip()
-	return m, tea.Batch(fetch, m.remember())
+	return m, fetch
 }
 
 // setTrip puts a new trip on hand, dropping the journeys and departures of
@@ -394,14 +395,6 @@ func (m *Model) fetchBoard() tea.Cmd {
 		board, err := source.Liveboard(context.Background(), stationID, lang)
 		return boardMsg{id: id, board: board, err: err}
 	}
-}
-
-func (m Model) remember() tea.Cmd {
-	if m.cfg.Remember == nil {
-		return nil
-	}
-	remember, fromID, toID := m.cfg.Remember, m.from.ID, m.to.ID
-	return func() tea.Msg { return rememberedMsg{remember(fromID, toID)} }
 }
 
 // gotTrip takes the answer the screen waits for. A failed refresh keeps
