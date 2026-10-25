@@ -3,8 +3,10 @@ package tui
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/PieterLuypaert/trainspot/internal/board"
 	"github.com/PieterLuypaert/trainspot/internal/stations"
@@ -95,14 +97,21 @@ func (m Model) previewFailed() bool {
 
 // recentLines list the recent trips under the form, numbered to pick,
 // while a number picks one; as the user types a name, the suggestions
-// take their place.
+// take their place. A trip too long for the width takes two lines, so
+// trips from the same station still tell apart.
 func (m Model) recentLines(width int) []string {
 	if !m.picksByNumber() {
 		return nil
 	}
 	lines := []string{"", indent + bold.Render("Recent trips")}
 	for i, t := range m.picks {
-		lines = append(lines, indent+"  "+bold.Render(strconv.Itoa(i+1))+"  "+t.from.Name(m.cfg.Lang)+faint.Render(" → ")+t.to.Name(m.cfg.Lang))
+		number := indent + "  " + bold.Render(strconv.Itoa(i+1)) + "  "
+		from, to := t.from.Name(m.cfg.Lang), t.to.Name(m.cfg.Lang)
+		if line := number + from + faint.Render(" → ") + to; lipgloss.Width(line) <= width {
+			lines = append(lines, line)
+			continue
+		}
+		lines = append(lines, number+from, strings.Repeat(" ", lipgloss.Width(number))+faint.Render("→ ")+to)
 	}
 	return lines
 }

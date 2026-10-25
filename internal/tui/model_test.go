@@ -948,6 +948,22 @@ func TestTheDeparturesUnderANarrowFormStayWhileItSuggests(t *testing.T) {
 	h.wantOnScreen("more; type more of the name", "Next from Gent-Sint-Pieters", "IC 535", "Live NMBS data via iRail")
 }
 
+func TestLongRecentTripsStillTellApart(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	airport := "BE.NMBS.008819406"
+	h.m.cfg.Stations = stations.NewDirectory([]stations.Station{
+		{ID: airport, Names: map[string]string{"nl": "Brussels Airport - Zaventem"}, Standard: "Brussels Airport - Zaventem"},
+		{ID: gentID, Names: map[string]string{"nl": "Gent-Sint-Pieters"}, Standard: "Gent-Sint-Pieters"},
+		{ID: "BE.NMBS.008893120", Names: map[string]string{"nl": "Gent-Dampoort"}, Standard: "Gent-Dampoort"},
+	})
+	h.m.setRecent(Trips{{From: airport, To: gentID}, {From: airport, To: "BE.NMBS.008893120"}})
+
+	h.send(tea.WindowSizeMsg{Width: 104, Height: 30})
+	h.press(letter('e'))
+
+	h.wantOnScreen("1  Brussels Airport - Zaventem", "→ Gent-Sint-Pieters", "→ Gent-Dampoort")
+}
+
 func TestTheRecentTripsMakeWayForSuggestions(t *testing.T) {
 	h := twoRecentTrips(t)
 	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
