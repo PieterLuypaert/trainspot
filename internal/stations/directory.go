@@ -180,9 +180,16 @@ var accents = strings.NewReplacer(
 
 // normalize lowercases, drops accents and turns everything that is not a
 // letter or digit into single spaces, so "Liège-Guillemins" and
-// "liege guillemins" compare equal.
+// "liege guillemins" compare equal. Accents typed as a separate combining
+// mark, as text copied on macOS can have them, are dropped too.
 func normalize(s string) string {
 	s = accents.Replace(strings.ToLower(s))
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Mn, r) {
+			return -1
+		}
+		return r
+	}, s)
 	words := strings.FieldsFunc(s, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 	return strings.Join(words, " ")
 }
