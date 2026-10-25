@@ -928,20 +928,16 @@ func TestAShrunkWindowKeepsTheChosenSuggestionInView(t *testing.T) {
 
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 12})
 
-	h.wantOnScreen("▸ Brussel-Schuman")
+	h.wantOnScreen("▸ Brussel-Noord")
 	h.press(enter)
-	h.wantOnScreen("From  Brussel-Schuman")
+	h.wantOnScreen("From  Brussel-Noord")
 }
 
 func TestTheDeparturesUnderANarrowFormStayWhileItSuggests(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
 	h.press(letter('e'), tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	var list []stations.Station
-	for i := range 25 {
-		list = append(list, stations.Station{ID: fmt.Sprintf("BE.NMBS.0088200%02d", i), Names: map[string]string{"nl": fmt.Sprintf("Brussel-%02d", i)}, Standard: fmt.Sprintf("Brussel-%02d", i)})
-	}
-	h.m.cfg.Stations = stations.NewDirectory(list)
+	h.m.cfg.Stations = numberedBrusselStations(25)
 
 	h.typeText("brus")
 
@@ -995,19 +991,42 @@ func TestANarrowFormLeavesOutNotesItCannotShow(t *testing.T) {
 	h.wantOnScreen("Bruxelles-Midi")
 }
 
+func numberedBrusselStations(n int) *stations.Directory {
+	var list []stations.Station
+	for i := range n {
+		list = append(list, stations.Station{ID: fmt.Sprintf("BE.NMBS.0088200%02d", i), Names: map[string]string{"nl": fmt.Sprintf("Brussel-%02d", i)}, Standard: fmt.Sprintf("Brussel-%02d", i)})
+	}
+	return stations.NewDirectory(list)
+}
+
+func TestARefusedSearchSaysWhyBesideTheSuggestions(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = numberedBrusselStations(25)
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 24})
+	h.typeText("brus")
+	h.press(enter)
+	h.typeText("brus")
+
+	h.press(enter)
+	h.wantOnScreen("From and To are the same station")
+
+	h.press(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	h.wantOnScreen("From and To are the same station", "Brussel-00", "more; type more of the name")
+}
+
 func TestASmallWindowSaysHowManySuggestionsAreLeftOut(t *testing.T) {
 	h := newHarness(t, "", "")
 	h.m.cfg.Stations = manyBrusselStations()
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 12})
 	h.typeText("brus")
 
-	h.wantOnScreen("Brussel-Schuman", "… 2 more; type more of the name")
+	h.wantOnScreen("Brussel-Noord", "… 3 more; type more of the name", "To    station name")
 	for range 10 {
 		h.press(down)
 	}
 	h.press(enter)
 
-	h.wantOnScreen("From  Brussel-Schuman")
+	h.wantOnScreen("From  Brussel-Noord")
 }
 
 // sendOnly updates the model without running the commands it returns, as

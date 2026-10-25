@@ -214,20 +214,25 @@ func (m Model) suggestionLines(width int) []string {
 }
 
 // shownSuggestions is how many suggestions the form shows: all that fit,
-// and at least minSuggestions. The recent trips make way while the form
-// suggests, and the departures under a narrow form keep narrowSideRows.
+// and at least minSuggestions rows. The recent trips make way while the
+// form suggests, and the departures under a narrow form keep
+// narrowSideRows.
 func (m Model) shownSuggestions() int {
 	width, room := m.inside()
-	// The blank line over the fields and the two fields take three rows.
+	// The blank line over the fields and the two fields take three rows,
+	// and a note under them the rows it wraps to after a blank line.
 	space := room - 3
+	if m.note != "" {
+		space -= 1 + len(wrap(m.note, formWidth(width), alarm))
+	}
 	if formWidth(width) == width {
 		space -= narrowSideRows
 	}
 	if len(m.suggested) <= space {
 		return len(m.suggested)
 	}
-	// One more row says how many are left out.
-	return min(len(m.suggested), max(minSuggestions, space-1))
+	// One of the rows says how many are left out.
+	return min(len(m.suggested), max(minSuggestions, space)-1)
 }
 
 // minNotesWidth is the least room a suggestion's notes get.

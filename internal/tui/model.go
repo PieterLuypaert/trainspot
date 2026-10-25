@@ -56,8 +56,9 @@ const (
 const (
 	refreshEvery = time.Minute
 	tickEvery    = 15 * time.Second
-	// minSuggestions is how many suggestions the form shows at least, when
-	// there are that many; a taller window shows more.
+	// minSuggestions is how many rows the suggestions take at least, when
+	// there are that many, the line about the rest included; a taller
+	// window shows more.
 	minSuggestions = 6
 )
 
@@ -376,6 +377,7 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 	}
 	if from.ID == to.ID {
 		m.note = "From and To are the same station; pick two different ones"
+		m.suggest()
 		return m, nil
 	}
 	return m.startTrip(*from, *to)
