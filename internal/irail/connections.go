@@ -32,8 +32,11 @@ type Call struct {
 	ArrivalDelay, DepartureDelay time.Duration
 	Platform                     string
 	PlatformChanged              bool
-	// Cancelled says the train does not stop here after all.
+	// Cancelled says the train skips this stop after all.
 	Cancelled bool
+	// EndsHere says the train now ends here: it still arrives, so you can
+	// get off, but goes no further.
+	EndsHere bool
 	// Passed says the train has left here.
 	Passed bool
 	// Extra is a stop the timetable did not plan.
@@ -127,7 +130,8 @@ func (c callJSON) call() Call {
 		DepartureDelay:  time.Duration(c.DepartureDelay) * time.Second,
 		Platform:        platform,
 		PlatformChanged: platformChanged,
-		Cancelled:       bool(c.ArrivalCanceled) || bool(c.DepartureCanceled),
+		Cancelled:       bool(c.ArrivalCanceled) && bool(c.DepartureCanceled),
+		EndsHere:        bool(c.DepartureCanceled) && !bool(c.ArrivalCanceled),
 		Passed:          bool(c.Left),
 		Extra:           bool(c.IsExtraStop),
 	}

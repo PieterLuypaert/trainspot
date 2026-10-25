@@ -277,3 +277,22 @@ func TestJourneyStopsFitANarrowTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestJourneyStopsSayWhereATrainNowEndsAndHideTheDelayOfASkippedStop(t *testing.T) {
+	j := irail.Journey{Legs: []irail.Leg{{Train: "IC 1", Departure: stop("Gent-Sint-Pieters", "15:00", 0, "4"),
+		Calls: []irail.Call{
+			{Station: "Wetteren", Departure: at("15:10"), DepartureDelay: 7 * time.Minute, Cancelled: true},
+			{Station: "Aalst", Arrival: at("15:20"), ArrivalDelay: 2 * time.Minute, Departure: at("15:22"), EndsHere: true},
+		},
+		Arrival: irail.Stop{Station: "Brussel-Zuid", Scheduled: at("15:45"), Cancelled: true}}}}
+
+	raw, legend := JourneyStops(j, JourneyOptions{Width: 80, Now: at("14:52"), Location: brussels})
+	text := ansi.Strip(strings.Join(raw, "\n"))
+
+	if !strings.Contains(text, "15:20 +2  · Aalst") || !strings.Contains(text, "train ends here") {
+		t.Errorf("the stop where the train now ends:\n%s", text)
+	}
+	if strings.Contains(text, "+7") || strings.Contains(ansi.Strip(strings.Join(legend, " ")), "+7") {
+		t.Errorf("a skipped stop shows or explains its delay:\n%s\n%s", text, ansi.Strip(strings.Join(legend, " ")))
+	}
+}

@@ -141,9 +141,10 @@ func newJourneyView(list []irail.Journey, o JourneyOptions, withCalls bool) *jou
 			for _, s := range []irail.Stop{leg.Departure, leg.Arrival} {
 				v.fit(s.Delay, s.Station, platformCell(s.Platform, s.PlatformChanged, s.Cancelled), s.Cancelled)
 			}
-			for _, c := range leg.Calls {
-				if withCalls {
-					v.fit(c.DepartureDelay, callMark+c.Station, platformCell(c.Platform, c.PlatformChanged, c.Cancelled), c.Cancelled)
+			if withCalls {
+				for _, c := range leg.Calls {
+					_, delay := callTime(c)
+					v.fit(delay, callMark+c.Station, callPlatform(c), c.Cancelled)
 				}
 			}
 		}
@@ -279,23 +280,41 @@ const callMark = "· "
 // call draws a station the train stops at on the way, with its departure
 // time; dimmed once the train has left it.
 func (v *journeyView) call(c irail.Call) string {
-	style, delay, label := plain, v.delayMark(c.DepartureDelay, ""), ""
+	at, late := callTime(c)
+	style, delay, label := plain, v.delayMark(late, ""), ""
 	switch {
 	case c.Cancelled:
 		style, delay, label = faint, "", alarm.Render("cancelled")
+	case c.EndsHere:
+		label = alarm.Render("train ends here")
 	case c.Extra:
 		label = faint.Render("extra stop")
 	}
 	if c.Passed {
 		style = faint
 	}
-	// NMBS rarely knows the platforms on the way, and a column of dashes
-	// would only be noise.
-	platform := cell{}
-	if c.Platform != "" {
-		platform = platformCell(c.Platform, c.PlatformChanged, c.Cancelled || c.Passed)
+	return v.line(style, at, delay, callMark+c.Station, callPlatform(c), label)
+}
+
+// callTime is the time a call shows: when the train leaves, or when it
+// arrives where it now ends. A skipped stop shows no delay.
+func callTime(c irail.Call) (time.Time, time.Duration) {
+	switch {
+	case c.Cancelled:
+		return c.Departure, 0
+	case c.EndsHere:
+		return c.Arrival, c.ArrivalDelay
 	}
-	return v.line(style, c.Departure, delay, callMark+c.Station, platform, label)
+	return c.Departure, c.DepartureDelay
+}
+
+// callPlatform leaves the platform blank when NMBS does not know it, which
+// on the way is nearly always: a column of dashes would only be noise.
+func callPlatform(c irail.Call) cell {
+	if c.Platform == "" {
+		return cell{}
+	}
+	return platformCell(c.Platform, c.PlatformChanged, c.Cancelled || c.Passed)
 }
 
 func (v *journeyView) line(style lipgloss.Style, at time.Time, delay, station string, platform cell, label string) string {
