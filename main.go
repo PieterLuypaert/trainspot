@@ -1,8 +1,9 @@
-// Command trainspot shows the live departures from any NMBS station in
-// Belgium.
+// Command trainspot shows live NMBS departures and journeys for any station
+// in Belgium.
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -25,17 +26,21 @@ import (
 	"github.com/PieterLuypaert/trainspot/internal/stations"
 )
 
-const usage = `trainspot shows the live departures from any NMBS station in Belgium.
+const usage = `trainspot shows live NMBS departures and journeys for any station in Belgium.
 
 Usage:
-  trainspot <station> [options]
+  trainspot <station>                  departures from a station
+  trainspot <station> --to <station>   journeys from one station to another
 
 Examples:
   trainspot gent sint pieters
+  trainspot gent sint pieters --to aarlen
   trainspot liège-guillemins --lang fr
   trainspot mons                 the same station as trainspot bergen
 
 Options:
+  --to <station>       show journeys to this station; every word after it is
+                       part of its name
   --lang nl|fr|en|de   language of the station names (default nl)
   --no-color           print without colours
   --version            print the version
@@ -51,7 +56,9 @@ var version = ""
 var brussels, _ = time.LoadLocation("Europe/Brussels")
 
 type options struct {
-	query   string
+	query string
+	// to is the destination of a journey, empty for departures.
+	to      string
 	lang    string
 	noColor bool
 	help    bool
@@ -85,7 +92,7 @@ func main() {
 	a := app{
 		client:      irail.NewClient("trainspot/" + appVersion() + " (https://github.com/PieterLuypaert/trainspot)"),
 		now:         time.Now,
-		in:          os.Stdin,
+		answers:     bufio.NewScanner(os.Stdin),
 		out:         stdout,
 		errOut:      stderr,
 		interactive: term.IsTerminal(os.Stdin.Fd()),
@@ -96,7 +103,8 @@ func main() {
 }
 
 // parseArgs allows options before, between and after the words of the
-// station name. Everything after -- is part of the name.
+// station names. The words after --to name the destination, and everything
+// after -- is part of the last name.
 func parseArgs(args []string) (options, error) {
 	o := options{}
 	fs := flag.NewFlagSet("trainspot", flag.ContinueOnError)
@@ -106,25 +114,66 @@ func parseArgs(args []string) (options, error) {
 	fs.BoolVar(&o.help, "h", false, "")
 	fs.BoolVar(&o.help, "help", false, "")
 	fs.BoolVar(&o.version, "version", false, "")
-	var words, rest []string
+	var rest []string
 	if i := slices.Index(args, "--"); i >= 0 {
 		args, rest = args[:i], args[i+1:]
 	}
-	for {
-		if err := fs.Parse(args); err != nil {
-			return o, err
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		words = append(words, fs.Arg(0))
-		args = fs.Args()[1:]
+	fromArgs, toArgs, hasTo := splitAtTo(args)
+	from, err := words(fs, fromArgs)
+	if err != nil {
+		return o, err
 	}
-	o.query = strings.Join(append(words, rest...), " ")
+	to, err := words(fs, toArgs)
+	if err != nil {
+		return o, err
+	}
+	if hasTo {
+		to = append(to, rest...)
+	} else {
+		from = append(from, rest...)
+	}
+	o.query, o.to = strings.Join(from, " "), strings.Join(to, " ")
+	switch {
+	case o.help || o.version:
+		return o, nil
+	case hasTo && o.to == "":
+		return o, errors.New("--to needs the name of a station")
+	case hasTo && o.query == "":
+		return o, fmt.Errorf("put the station the journey starts from before --to, as in: trainspot gent --to %s", o.to)
+	}
 	if !slices.Contains(irail.Languages, o.lang) {
 		return o, fmt.Errorf("--lang takes nl, fr, en or de, not %q", o.lang)
 	}
 	return o, nil
+}
+
+// words parses the options among args and returns the other words.
+func words(fs *flag.FlagSet, args []string) ([]string, error) {
+	var found []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return found, nil
+		}
+		found = append(found, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+}
+
+// splitAtTo cuts the arguments at --to, or at --to=name.
+func splitAtTo(args []string) (from, to []string, found bool) {
+	for i, arg := range args {
+		switch {
+		case arg == "--to" || arg == "-to":
+			return args[:i], args[i+1:], true
+		case strings.HasPrefix(arg, "--to=") || strings.HasPrefix(arg, "-to="):
+			_, name, _ := strings.Cut(arg, "=")
+			return args[:i], append([]string{name}, args[i+1:]...), true
+		}
+	}
+	return args, nil, false
 }
 
 func appVersion() string {
@@ -162,10 +211,12 @@ func terminalWidth() int {
 }
 
 type app struct {
-	client      *irail.Client
-	cachePath   string
-	now         func() time.Time
-	in          io.Reader
+	client    *irail.Client
+	cachePath string
+	now       func() time.Time
+	// answers reads what the user types into the picker; one scanner for
+	// the whole run, since a second one could miss lines the first buffered.
+	answers     *bufio.Scanner
 	out         io.Writer
 	errOut      io.Writer
 	interactive bool
@@ -177,22 +228,60 @@ func (a app) run(ctx context.Context, o options) int {
 	if err != nil {
 		return a.fail(err)
 	}
-	station, err := a.chooseStation(dir, o.query, o.lang)
+	if err := checkNames(dir, o.lang, o.query, o.to); err != nil {
+		return a.fail(err)
+	}
+	from, err := a.chooseStation(dir, o.query, o.lang)
 	if err != nil {
 		return a.fail(err)
 	}
-	departures, err := a.client.Liveboard(ctx, station.ID, o.lang)
+	if o.to == "" {
+		err = a.showDepartures(ctx, from, o.lang)
+	} else {
+		err = a.showJourneys(ctx, dir, from, o.to, o.lang)
+	}
 	if err != nil {
-		return a.fail(fmt.Errorf("could not get the departures from %s: %w", station.Name(o.lang), err))
+		return a.fail(err)
+	}
+	return 0
+}
+
+func (a app) showDepartures(ctx context.Context, station stations.Station, lang string) error {
+	departures, err := a.client.Liveboard(ctx, station.ID, lang)
+	if err != nil {
+		return fmt.Errorf("could not get the departures from %s: %w", station.Name(lang), err)
 	}
 	fmt.Fprint(a.out, board.Render(departures, board.Options{
-		Station:   station.Name(o.lang),
-		LocalName: station.LocalName(o.lang),
+		Station:   station.Name(lang),
+		LocalName: station.LocalName(lang),
 		Width:     a.width,
 		Now:       a.now(),
 		Location:  brussels,
 	}))
-	return 0
+	return nil
+}
+
+func (a app) showJourneys(ctx context.Context, dir *stations.Directory, from stations.Station, toQuery, lang string) error {
+	to, err := a.chooseStation(dir, toQuery, lang)
+	if err != nil {
+		return err
+	}
+	if to.ID == from.ID {
+		return usageError{fmt.Sprintf("%s is both where the journey starts and ends; pick two different stations", from.Name(lang))}
+	}
+	trip, err := a.client.Journeys(ctx, from.ID, to.ID, lang)
+	if err != nil {
+		return fmt.Errorf("could not get the journeys from %s to %s: %w", from.Name(lang), to.Name(lang), err)
+	}
+	fmt.Fprint(a.out, board.Journeys(trip.Journeys, board.JourneyOptions{
+		From:     from.Name(lang),
+		To:       to.Name(lang),
+		Width:    a.width,
+		Now:      a.now(),
+		Updated:  trip.Updated,
+		Location: brussels,
+	}))
+	return nil
 }
 
 // usageError is a mistake in what the user typed, which exits with 2.

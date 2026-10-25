@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -35,6 +36,7 @@ var testStations = map[string]string{
 type fakeIRail struct {
 	liveboards   []url.Values
 	liveboardErr int
+	journeys     []url.Values
 }
 
 func (f *fakeIRail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +57,11 @@ func (f *fakeIRail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"station":"x","timestamp":"1792936000","departures":{"departure":[
 			{"station":"Brugge","time":"1792936320","delay":"0","canceled":"0","left":"0","isExtra":"0",
 			 "platform":"6","platforminfo":{"name":"6","normal":"1"},"vehicleinfo":{"shortname":"IC 535"},"occupancy":{"name":"low"}}]}}`)
+	case "/connections/":
+		f.journeys = append(f.journeys, query)
+		fmt.Fprint(w, `{"timestamp":"1792936000","connection":[{
+			"departure":{"station":"Gent-Sint-Pieters","time":"1792936320","delay":"120","canceled":"0","walking":"0","vehicle":"BE.NMBS.IC535","vehicleinfo":{"shortname":"IC 535"},"platform":"11","direction":{"name":"Oostende"}},
+			"arrival":{"station":"Brugge","time":"1792937820","delay":"0","canceled":"0","walking":"0","platform":"4"}}]}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -82,7 +89,7 @@ func runWith(t *testing.T, args []string, input string, interactive bool, iRail 
 		client:      client,
 		cachePath:   filepath.Join(t.TempDir(), "stations.json"),
 		now:         func() time.Time { return time.Unix(1792936000, 0) },
-		in:          strings.NewReader(input),
+		answers:     bufio.NewScanner(strings.NewReader(input)),
 		out:         &out,
 		errOut:      &errOut,
 		interactive: interactive,
@@ -100,6 +107,49 @@ func TestShowsTheDeparturesFromAStation(t *testing.T) {
 	}
 	if got := r.iRail.liveboards[0]; got.Get("id") != "BE.NMBS.008892007" || got.Get("lang") != "nl" {
 		t.Errorf("liveboard asked for %v", got)
+	}
+}
+
+func TestShowsTheJourneysBetweenTwoStations(t *testing.T) {
+	r := runWith(t, []string{"gent", "sint", "pieters", "--to", "brugge"}, "", true, &fakeIRail{})
+
+	if r.code != 0 || len(r.iRail.liveboards) != 0 {
+		t.Fatalf("code %d, liveboards %v, err:\n%s", r.code, r.iRail.liveboards, r.err)
+	}
+	for _, want := range []string{"Gent-Sint-Pieters → Brugge", "14:52 +2 → 15:17   23 min   direct", "IC 535 to Oostende"} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("no %q in\n%s", want, r.out)
+		}
+	}
+	if got := r.iRail.journeys[0]; got.Get("from") != "BE.NMBS.008892007" || got.Get("to") != "BE.NMBS.008891009" {
+		t.Errorf("journeys asked for %v", got)
+	}
+}
+
+func TestAsksForBothStationsInTurn(t *testing.T) {
+	r := runWith(t, []string{"gent", "--to", "gent"}, "1\n2\n", true, &fakeIRail{})
+
+	if r.code != 0 || len(r.iRail.journeys) != 1 {
+		t.Fatalf("code %d, err:\n%s", r.code, r.err)
+	}
+	if got := r.iRail.journeys[0]; got.Get("from") != "BE.NMBS.008893120" || got.Get("to") != "BE.NMBS.008892007" {
+		t.Errorf("journeys asked for %v, want Gent-Dampoort to Gent-Sint-Pieters", got)
+	}
+}
+
+func TestReportsAnUnknownDestinationBeforeAsking(t *testing.T) {
+	r := runWith(t, []string{"gent", "--to", "brugeee"}, "1\n", true, &fakeIRail{})
+
+	if r.code != 2 || !strings.Contains(r.err, `no station is called "brugeee"`) || strings.Contains(r.err, "Which one?") {
+		t.Errorf("code %d, err:\n%s", r.code, r.err)
+	}
+}
+
+func TestRefusesAJourneyToTheSameStation(t *testing.T) {
+	r := runWith(t, []string{"bergen", "--to", "mons"}, "", true, &fakeIRail{})
+
+	if r.code != 2 || !strings.Contains(r.err, "Bergen is both where the journey starts and ends") || len(r.iRail.journeys) != 0 {
+		t.Errorf("code %d, err:\n%s", r.code, r.err)
 	}
 }
 
@@ -197,6 +247,14 @@ func TestCachePathFollowsXDG(t *testing.T) {
 	}
 }
 
+func TestHelpFitsAnEightyColumnTerminal(t *testing.T) {
+	for _, line := range strings.Split(usage, "\n") {
+		if w := ansi.StringWidth(line); w > 80 {
+			t.Errorf("help line is %d wide: %q", w, line)
+		}
+	}
+}
+
 func TestParseArgs(t *testing.T) {
 	cases := []struct {
 		args    []string
@@ -207,6 +265,11 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"--lang", "fr", "liège", "guillemins"}, options{query: "liège guillemins", lang: "fr"}, ""},
 		{[]string{"luik", "--no-color", "guillemins", "-lang=de"}, options{query: "luik guillemins", lang: "de", noColor: true}, ""},
 		{[]string{"--lang", "fr", "--", "gent", "--lang", "de"}, options{query: "gent --lang de", lang: "fr"}, ""},
+		{[]string{"gent", "--to", "brussel", "zuid", "--lang", "fr"}, options{query: "gent", to: "brussel zuid", lang: "fr"}, ""},
+		{[]string{"--no-color", "luik", "-to=namen", "--", "-x"}, options{query: "luik", to: "namen -x", lang: "nl", noColor: true}, ""},
+		{[]string{"gent", "--to"}, options{}, "--to needs the name of a station"},
+		{[]string{"gent", "--to", "--help"}, options{query: "gent", lang: "nl", help: true}, ""},
+		{[]string{"--to", "brugge"}, options{}, "put the station the journey starts from before --to, as in: trainspot gent --to brugge"},
 		{[]string{"-h"}, options{lang: "nl", help: true}, ""},
 		{[]string{"--version"}, options{lang: "nl", version: true}, ""},
 		{[]string{"gent", "--lang", "es"}, options{}, `--lang takes nl, fr, en or de, not "es"`},

@@ -1,5 +1,5 @@
 // Package board draws a station's departures the way a station board does,
-// fitted to the terminal's width.
+// and journeys between two stations, fitted to the terminal's width.
 package board
 
 import (
@@ -52,7 +52,7 @@ var (
 
 func Render(b irail.Liveboard, o Options) string {
 	var out strings.Builder
-	out.WriteString(header(o) + "\n\n")
+	out.WriteString(boardHeader(o) + "\n\n")
 	if len(b.Departures) == 0 {
 		out.WriteString(indent + "No departures are listed right now.\n")
 	}
@@ -61,30 +61,35 @@ func Render(b irail.Liveboard, o Options) string {
 	for _, line := range legend(notes, o.Width) {
 		out.WriteString(indent + line + "\n")
 	}
-	updated := b.Updated.In(o.Location).Format("15:04")
-	out.WriteString(indent + faint.Render("Live NMBS data via iRail, updated "+updated) + "\n")
+	out.WriteString(footer(b.Updated, o.Location) + "\n")
 	return out.String()
 }
 
-// header gives up the clock, then the local name, before it shortens the
-// station's name to fit the width.
-func header(o Options) string {
-	room := o.Width - 2*len(indent)
+// boardHeader gives up the clock, then the local name, before it shortens
+// the station's name to fit the width.
+func boardHeader(o Options) string {
 	title := "Departures from " + bold.Render(o.Station)
-	full := title
+	titles := []string{title}
 	if o.LocalName != "" {
-		full += " " + faint.Render("("+o.LocalName+")")
+		titles = []string{title + " " + faint.Render("("+o.LocalName+")"), title}
 	}
-	clock := faint.Render(o.Now.In(o.Location).Format("Mon 2 Jan 15:04"))
-	switch space := room - lipgloss.Width(full) - lipgloss.Width(clock); {
-	case space >= 2:
-		return indent + full + strings.Repeat(" ", space) + clock
-	case lipgloss.Width(full) <= room:
-		return indent + full
-	case lipgloss.Width(title) <= room:
-		return indent + title
+	return header(titles, o.Now.In(o.Location), o.Width)
+}
+
+// header shows the first title beside the clock when they fit together.
+// Otherwise it shows the first title that fits alone, or shortens the last.
+func header(titles []string, now time.Time, width int) string {
+	room := width - 2*len(indent)
+	clock := faint.Render(now.Format("Mon 2 Jan 15:04"))
+	if space := room - lipgloss.Width(titles[0]) - lipgloss.Width(clock); space >= 2 {
+		return indent + titles[0] + strings.Repeat(" ", space) + clock
 	}
-	return indent + ansi.Truncate(title, room, "…")
+	for _, title := range titles {
+		if lipgloss.Width(title) <= room {
+			return indent + title
+		}
+	}
+	return indent + ansi.Truncate(titles[len(titles)-1], room, "…")
 }
 
 // legend puts the notes for the marks on the board on one line when that
@@ -100,12 +105,18 @@ func legend(notes []string, width int) []string {
 	return []string{line}
 }
 
-func minutesLate(d irail.Departure) int {
-	return int(d.Delay / time.Minute)
+// footer says where the data comes from and when iRail worked it out.
+func footer(updated time.Time, loc *time.Location) string {
+	return indent + faint.Render("Live NMBS data via iRail, updated "+clock(updated, loc))
 }
 
-func clock(t time.Time, o Options) string {
-	return t.In(o.Location).Format("15:04")
+// minutes counts whole minutes, which is how NMBS gives delays.
+func minutes(d time.Duration) int {
+	return int(d / time.Minute)
+}
+
+func clock(t time.Time, loc *time.Location) string {
+	return t.In(loc).Format("15:04")
 }
 
 type cell struct {
@@ -122,9 +133,58 @@ type note struct {
 }
 
 const (
-	lateNote = iota
-	platformNote
+	lateKind = iota
+	platformKind
 )
+
+func lateNote(minutes int) *note {
+	return &note{lateKind, faint.Render(fmt.Sprintf("+%d = %d min late", minutes, minutes))}
+}
+
+func platformNote(mark string) *note {
+	return &note{platformKind, changed.Render(mark) + faint.Render(" = platform changed")}
+}
+
+// addNote keeps the first note of each kind.
+func addNote(notes []note, n *note) []note {
+	if n == nil || slices.ContainsFunc(notes, func(m note) bool { return m.kind == n.kind }) {
+		return notes
+	}
+	return append(notes, *n)
+}
+
+func noteTexts(notes []note) []string {
+	slices.SortFunc(notes, func(a, b note) int { return a.kind - b.kind })
+	var texts []string
+	for _, n := range notes {
+		texts = append(texts, n.text)
+	}
+	return texts
+}
+
+// delayStyle is yellow for a few minutes late and red from lateAfter.
+func delayStyle(delay time.Duration) lipgloss.Style {
+	if delay < lateAfter {
+		return yellow
+	}
+	return alarm
+}
+
+// platformCell marks a changed platform; faded is for trains that are gone
+// or cancelled, whose platform no longer matters.
+func platformCell(platform string, platformChanged, faded bool) cell {
+	switch {
+	case platform == "":
+		return cell{text: "–", style: faint}
+	case faded:
+		return cell{text: platform, style: faint}
+	case platformChanged:
+		mark := platform + " !"
+		return cell{text: mark, style: changed, note: platformNote(mark)}
+	default:
+		return cell{text: platform, style: bold}
+	}
+}
 
 type column struct {
 	title string
@@ -136,9 +196,9 @@ type column struct {
 var (
 	timeColumn = column{title: "Time", cell: func(d irail.Departure, o Options) cell {
 		if d.Cancelled || d.Departed {
-			return cell{text: clock(d.Scheduled, o), style: faint}
+			return cell{text: clock(d.Scheduled, o.Location), style: faint}
 		}
-		return cell{text: clock(d.Scheduled, o), style: bold}
+		return cell{text: clock(d.Scheduled, o.Location), style: bold}
 	}}
 	expectedColumn = column{title: "Expected", cell: func(d irail.Departure, o Options) cell {
 		switch {
@@ -146,13 +206,11 @@ var (
 			return cell{text: "cancelled", style: alarm}
 		case d.Departed:
 			return cell{text: "departed", style: faint}
-		case minutesLate(d) <= 0:
+		case minutes(d.Delay) <= 0:
 			return cell{text: "on time", style: green}
-		case d.Delay < lateAfter:
-			return lateCell(d, o, yellow)
-		default:
-			return lateCell(d, o, alarm)
 		}
+		late := minutes(d.Delay)
+		return cell{text: fmt.Sprintf("%s +%d", clock(d.Expected(), o.Location), late), style: delayStyle(d.Delay), note: lateNote(late)}
 	}}
 	destinationColumn = column{title: "To", cell: func(d irail.Departure, o Options) cell {
 		if d.Cancelled || d.Departed {
@@ -161,17 +219,7 @@ var (
 		return cell{text: d.Destination, style: plain}
 	}}
 	platformColumn = column{title: "Platform", cell: func(d irail.Departure, o Options) cell {
-		switch {
-		case d.Platform == "":
-			return cell{text: "–", style: faint}
-		case d.Cancelled || d.Departed:
-			return cell{text: d.Platform, style: faint}
-		case d.PlatformChanged:
-			mark := d.Platform + " !"
-			return cell{text: mark, style: changed, note: &note{platformNote, changed.Render(mark) + faint.Render(" = platform changed")}}
-		default:
-			return cell{text: d.Platform, style: bold}
-		}
+		return platformCell(d.Platform, d.PlatformChanged, d.Cancelled || d.Departed)
 	}}
 	trainColumn = column{title: "Train", optional: true, cell: func(d irail.Departure, o Options) cell {
 		if d.Extra {
@@ -191,12 +239,6 @@ var (
 		return cell{text: "", style: plain}
 	}}
 )
-
-func lateCell(d irail.Departure, o Options, style lipgloss.Style) cell {
-	late := minutesLate(d)
-	explained := faint.Render(fmt.Sprintf("+%d = %d min late", late, late))
-	return cell{text: fmt.Sprintf("%s +%d", clock(d.Expected(), o), late), style: style, note: &note{lateNote, explained}}
-}
 
 // layouts go from the widest to the narrowest; the first that fits wins.
 var layouts = [][]column{
@@ -225,18 +267,11 @@ func departures(list []irail.Departure, o Options) (string, []string) {
 			cl := c.cell(d, o)
 			text := ansi.Truncate(cl.text, widths[i], "…")
 			out.WriteString(pad(cl.style.Render(text), widths[i], i == len(columns)-1))
-			if cl.note != nil && !slices.ContainsFunc(notes, func(n note) bool { return n.kind == cl.note.kind }) {
-				notes = append(notes, *cl.note)
-			}
+			notes = addNote(notes, cl.note)
 		}
 		out.WriteString("\n")
 	}
-	slices.SortFunc(notes, func(a, b note) int { return a.kind - b.kind })
-	var texts []string
-	for _, n := range notes {
-		texts = append(texts, n.text)
-	}
-	return out.String(), texts
+	return out.String(), noteTexts(notes)
 }
 
 // fit picks the widest layout that fits o.Width. Optional columns go

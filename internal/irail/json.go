@@ -6,6 +6,24 @@ import (
 	"strings"
 )
 
+// platform turns iRail's platform into an empty one when it is unknown
+// ("?"), and calls it changed when NMBS sent a realtime one.
+func platform(name string, normal *flag) (string, bool) {
+	if name == "?" {
+		return "", false
+	}
+	return name, name != "" && normal != nil && !bool(*normal)
+}
+
+// trainName prefers the short name, such as "IC 514", over the vehicle's
+// id.
+func trainName(shortName, vehicle string) string {
+	if shortName != "" {
+		return shortName
+	}
+	return strings.TrimPrefix(vehicle, "BE.NMBS.")
+}
+
 // number is a whole number that iRail sends as a string, such as "60".
 type number int64
 

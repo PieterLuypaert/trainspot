@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"strconv"
 	"strings"
@@ -33,6 +32,20 @@ func (a app) chooseStation(dir *stations.Directory, query, lang string) (station
 		return stations.Station{}, ambiguous(query, matches, lang)
 	}
 	return a.ask(query, matches, lang)
+}
+
+// checkNames reports a name that fits no station at all before the picker
+// asks about another one.
+func checkNames(dir *stations.Directory, lang string, queries ...string) error {
+	for _, query := range queries {
+		if query == "" {
+			continue
+		}
+		if matches, _ := dir.Lookup(query, lang); len(matches) == 0 {
+			return noMatch(dir, query, lang)
+		}
+	}
+	return nil
 }
 
 func noMatch(dir *stations.Directory, query, lang string) error {
@@ -73,14 +86,13 @@ func (a app) ask(query string, matches []stations.Station, lang string) (station
 	}
 	fmt.Fprintln(a.errOut)
 
-	answers := bufio.NewScanner(a.in)
 	for {
 		fmt.Fprintf(a.errOut, "  Which one? Type a number from 1 to %d: ", len(shown))
-		if !answers.Scan() {
+		if !a.answers.Scan() {
 			fmt.Fprintln(a.errOut)
 			return stations.Station{}, usageError{"no station chosen"}
 		}
-		n, err := strconv.Atoi(strings.TrimSpace(answers.Text()))
+		n, err := strconv.Atoi(strings.TrimSpace(a.answers.Text()))
 		if err == nil && n >= 1 && n <= len(shown) {
 			fmt.Fprintln(a.errOut)
 			return shown[n-1], nil
