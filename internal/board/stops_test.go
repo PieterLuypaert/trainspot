@@ -152,7 +152,7 @@ func TestRouteStopsShowWhereTheTrainIsAndMarkTheBoardStation(t *testing.T) {
 		runCall("Aarlen", "21:22", false, false),
 	)
 
-	lines, _ := RouteStops(rt, JourneyOptions{Width: 80, Now: at("18:00"), Location: brussels}, "Namen")
+	lines, _ := RouteStops(rt, JourneyOptions{Width: 80, Now: at("18:00"), Location: brussels}, Mark{Station: "Namen", At: at("18:45")})
 	text := plainLines(lines)
 
 	if strings.Contains(text, "IC 2117") || !strings.HasPrefix(text, "  17:13  ●  Brussel-Zuid") {
@@ -169,7 +169,7 @@ func TestRouteStopsShowWhereTheTrainIsAndMarkTheBoardStation(t *testing.T) {
 func TestRouteStopsMarkTheTrainStandingAtItsFirstStation(t *testing.T) {
 	rt := route(runCall("Gent-Sint-Pieters", "17:13", false, true), runCall("Aalst", "17:40", false, false), runCall("Brussel-Zuid", "18:07", false, false))
 
-	lines, _ := RouteStops(rt, JourneyOptions{Width: 80, Now: at("17:10"), Location: brussels}, "")
+	lines, _ := RouteStops(rt, JourneyOptions{Width: 80, Now: at("17:10"), Location: brussels}, Mark{})
 
 	if !regexp.MustCompile(`17:13  ◆  Gent-Sint-Pieters +train is here`).MatchString(plainLines(lines)) {
 		t.Errorf("the train standing at its first station:\n%s", plainLines(lines))
@@ -186,13 +186,112 @@ func TestSummaries(t *testing.T) {
 	}
 }
 
-func TestTheRouteLineFitsANarrowTerminal(t *testing.T) {
-	for _, width := range []int{60, 40, 30} {
-		lines, _ := JourneyStops(twoTrainJourney(), JourneyOptions{Width: width, Now: at("15:30"), Location: brussels})
+func TestTheRouteLineKeepsWhatMattersOnANarrowTerminal(t *testing.T) {
+	airport := stop("Brussels Airport - Zaventem", "15:00", 0, "4")
+	airport.PlatformChanged = true
+	j := irail.Journey{Legs: []irail.Leg{{Train: "IC 2215", Direction: "Gent-Sint-Pieters", Departure: airport,
+		Calls: []irail.Call{
+			{Station: "Brussel-Noord", Arrival: at("15:15"), Departure: at("15:16"), Arrived: true},
+			{Station: "Brussel-Centraal", Arrival: at("15:20"), ArrivalDelay: 12 * time.Minute, Departure: at("15:21"), EndsHere: true},
+		},
+		Arrival: stop("Gent-Sint-Pieters", "16:00", 0, "11")}}}
+
+	for _, width := range []int{80, 56, 46} {
+		lines, legend := JourneyStops(j, JourneyOptions{Width: width, Now: at("15:16"), Location: brussels})
+		text := plainLines(lines)
 		for _, l := range lines {
 			if w := ansi.StringWidth(l); w > width {
 				t.Errorf("width %d: line is %d wide: %q", width, w, ansi.Strip(l))
 			}
 		}
+		for _, want := range []string{"train is here", "train ends here"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("width %d lost %q:\n%s", width, want, text)
+			}
+		}
+		if !regexp.MustCompile(`Brussels A.* 4 !`).MatchString(text) || !regexp.MustCompile(`Gent-Sint.* (platform )?11`).MatchString(text) {
+			t.Errorf("width %d lost a platform where you get on or off:\n%s", width, text)
+		}
+		if strings.Contains(text, "platform 4") != strings.Contains(text, "platform 11") {
+			t.Errorf("width %d mixes the long and short platform:\n%s", width, text)
+		}
+		if !strings.Contains(plainLines(legend), "4 ! = platform changed") {
+			t.Errorf("width %d: legend = %q", width, plainLines(legend))
+		}
+	}
+}
+
+func TestACancelledStopShowsNoDelayAndNoTrainMarker(t *testing.T) {
+	gone := irail.Stop{Station: "Brussel-Zuid", Scheduled: at("17:13"), Delay: 9 * time.Minute, Cancelled: true, Arrived: true}
+	j := irail.Journey{Legs: []irail.Leg{{Train: "IC 1", Departure: gone, Arrival: stop("Aarlen", "20:00", 0, "2")}}}
+
+	lines, legend := JourneyStops(j, JourneyOptions{Width: 80, Now: at("17:00"), Location: brussels})
+	text := plainLines(lines)
+
+	if strings.Contains(text, "◆") || strings.Contains(text, "+9") || strings.Contains(plainLines(legend), "+9") {
+		t.Errorf("a cancelled stop shows the train or its delay:\n%s\n%s", text, plainLines(legend))
+	}
+}
+
+func TestATrainStandingAtTheBoardingStationIsThere(t *testing.T) {
+	standing := stop("Gent-Sint-Pieters", "15:13", 0, "6")
+	standing.Arrived = true
+	j := irail.Journey{Legs: []irail.Leg{{Train: "IC 1", Departure: standing,
+		Calls: []irail.Call{{Station: "Aalst", Departure: at("15:40")}}, Arrival: stop("Brussel-Zuid", "16:07", 0, "14")}}}
+
+	lines, _ := JourneyStops(j, JourneyOptions{Width: 80, Now: at("15:10"), Location: brussels})
+	text := plainLines(lines)
+
+	if !regexp.MustCompile(`◆  Gent-Sint-Pieters +train is here`).MatchString(text) || strings.Contains(text, "next stop") {
+		t.Errorf("a train standing at the platform:\n%s", text)
+	}
+}
+
+func TestAJourneyThatStartsWithAWalkHasNoChangeBeforeItsTrain(t *testing.T) {
+	j := irail.Journey{Legs: []irail.Leg{
+		{Walking: true, Departure: stop("Haren-Zuid", "15:20", 0, ""), Arrival: stop("Haren", "15:30", 0, "")},
+		ride("S4 1", "Aalst", stop("Haren", "15:36", 0, "1"), stop("Aarlen", "18:00", 0, "2")),
+	}}
+
+	lines, _ := JourneyStops(j, JourneyOptions{Width: 80, Now: at("14:00"), Location: brussels})
+
+	if text := plainLines(lines); strings.Contains(text, "Change at") || !strings.Contains(ansi.Strip(JourneySummary(j)), "direct") {
+		t.Errorf("a walk before the first train counts as a change:\n%s\n%s", text, ansi.Strip(JourneySummary(j)))
+	}
+}
+
+func TestAHeaderAndSummaryEndWhereTheTrainNowEnds(t *testing.T) {
+	stops := []irail.Call{
+		runCall("Brussel-Zuid", "17:13", false, false),
+		{Station: "Leuven", Arrival: at("17:42"), Departure: at("17:49"), EndsHere: true},
+		runCall("Namen", "18:45", false, false),
+	}
+	stops[2].Cancelled = true
+
+	if got := ansi.Strip(RouteSummary(route(stops...))); !strings.HasPrefix(got, "29 min · from Brussel-Zuid to Leuven") {
+		t.Errorf("summary = %q", got)
+	}
+	cancelled := irail.Leg{Train: "IC 1", Departure: stop("Brussel-Zuid", "17:13", 0, "1"), Arrival: irail.Stop{Station: "Namen", Scheduled: at("18:45"), Delay: 9 * time.Minute, Cancelled: true}}
+	lines, _ := JourneyStops(irail.Journey{Legs: []irail.Leg{cancelled}}, JourneyOptions{Width: 80, Now: at("17:00"), Location: brussels})
+	if header := ansi.Strip(lines[0]); !strings.HasSuffix(header, "cancelled") {
+		t.Errorf("header of a leg whose arrival is cancelled = %q", header)
+	}
+}
+
+func TestTheBoardStationIsMarkedOnlyAtItsOwnTime(t *testing.T) {
+	rt := route(runCall("Oostende", "16:30", false, false), runCall("Gent-Sint-Pieters", "17:00", false, false), runCall("Brugge", "17:30", false, false),
+		runCall("Gent-Sint-Pieters", "18:00", false, false), runCall("Aalst", "18:30", false, false))
+
+	lines, _ := RouteStops(rt, JourneyOptions{Width: 80, Now: at("16:00"), Location: brussels}, Mark{Station: "Gent-Sint-Pieters", At: at("18:00")})
+	text := plainLines(lines)
+
+	if !regexp.MustCompile(`18:00  ●  Gent-Sint-Pieters +platform 3`).MatchString(text) || !strings.Contains(text, "17:00  │  Gent-Sint-Pieters") {
+		t.Errorf("the station is marked at both visits, or not at its own:\n%s", text)
+	}
+}
+
+func TestARouteWithoutTwoStopsDrawsNothing(t *testing.T) {
+	if lines, legend := RouteStops(route(runCall("Gent-Sint-Pieters", "17:00", false, false)), JourneyOptions{Width: 80, Location: brussels}, Mark{}); lines != nil || legend != nil {
+		t.Errorf("got %q and %q", lines, legend)
 	}
 }

@@ -93,9 +93,9 @@ func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 
 type journeyView struct {
 	o JourneyOptions
-	// Widths of the delay, station and platform columns of the stop lines.
-	delay, station, platform int
-	notes                    []note
+	marks
+	// Widths of the station and platform columns of the stop lines.
+	station, platform int
 }
 
 // newJourneyView sizes the columns for the stops of the journeys.
@@ -116,7 +116,7 @@ func newJourneyView(list []irail.Journey, o JourneyOptions) *journeyView {
 
 func (v *journeyView) fit(delay time.Duration, station string, platform cell, cancelled bool) {
 	if !cancelled {
-		v.delay = max(v.delay, lipgloss.Width(delayText(delay)))
+		v.fitDelay(delay)
 	}
 	v.station = max(v.station, lipgloss.Width(station))
 	v.platform = max(v.platform, lipgloss.Width(platform.text))
@@ -125,15 +125,6 @@ func (v *journeyView) fit(delay time.Duration, station string, platform cell, ca
 // beforeStation is how far in the station column starts.
 func (v *journeyView) beforeStation() int {
 	return len(stopIndent) + len("15:04") + lipgloss.Width(v.delayColumn("")) + len(gap)
-}
-
-// delayColumn pads a delay mark to the column, which takes no room at all
-// when no stop is late.
-func (v *journeyView) delayColumn(mark string) string {
-	if v.delay == 0 {
-		return ""
-	}
-	return " " + mark + strings.Repeat(" ", v.delay-lipgloss.Width(mark))
 }
 
 func (v *journeyView) legendLines(notes []note) []string {
@@ -156,10 +147,7 @@ func (v *journeyView) summary(j irail.Journey, changes []irail.Change) []string 
 		parts = []string{start + " → " + end, alarm.Render("cancelled")}
 	} else {
 		times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
-		parts = []string{times, formatDuration(j.Duration()), changesText(len(changes))}
-		if slices.ContainsFunc(changes, irail.Change.Missed) {
-			parts = append(parts, alarm.Render("change missed"))
-		}
+		parts = append([]string{times}, durationAndChanges(j, changes)...)
 	}
 	if day := v.day(dep.Scheduled); day != "" {
 		parts = append(parts, day)
@@ -234,7 +222,7 @@ func stopPlatform(s irail.Stop) cell {
 }
 
 func (v *journeyView) line(style lipgloss.Style, at time.Time, delay, station string, platform cell, label string) string {
-	v.notes = addNote(v.notes, platform.note)
+	v.note(platform.note)
 	line := stopIndent + style.Render(clock(at, v.o.Location)) + v.delayColumn(delay) + gap +
 		pad(style.Render(ansi.Truncate(station, v.station, "…")), v.station, false) +
 		pad(platform.style.Render(platform.text), v.platform, label == "")
@@ -265,12 +253,10 @@ func (v *journeyView) change(c irail.Change) string {
 // delayMark is the coloured +N after a time, with the space before it,
 // or nothing for a train on time.
 func (v *journeyView) delayMark(delay time.Duration, space string) string {
-	text := delayText(delay)
-	if text == "" {
-		return ""
+	if mark := v.lateMark(delay); mark != "" {
+		return space + mark
 	}
-	v.notes = addNote(v.notes, lateNote(minutes(delay)))
-	return space + delayStyle(delay).Render(text)
+	return ""
 }
 
 func delayText(delay time.Duration) string {
