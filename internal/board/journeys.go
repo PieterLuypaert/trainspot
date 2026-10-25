@@ -96,11 +96,22 @@ func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 // changes in between, and the legend for what it shows. Stations the train
 // has passed are dimmed.
 func JourneyStops(j irail.Journey, o JourneyOptions) (lines, legendLines []string) {
+	return detailedStops(j, o, true)
+}
+
+func detailedStops(j irail.Journey, o JourneyOptions, trainLines bool) (lines, legendLines []string) {
 	v := newJourneyView([]irail.Journey{j}, o, true)
+	v.trainLines = trainLines
 	for _, line := range v.stops(j, j.Changes()) {
 		lines = append(lines, clip(line, o.Width))
 	}
 	return lines, v.legendLines(v.notes)
+}
+
+// RouteStops draws every stop of a train's run, as JourneyStops does for a
+// leg, without the train's own line: a caller names the train itself.
+func RouteStops(r irail.Route, o JourneyOptions) (lines, legendLines []string) {
+	return detailedStops(irail.Journey{Legs: []irail.Leg{r.Leg()}}, o, false)
 }
 
 type journeyView struct {
@@ -109,6 +120,8 @@ type journeyView struct {
 	// the calls on the way and dims what the train has passed. Otherwise a
 	// leg is two stop lines with the train beside the first.
 	detailed bool
+	// trainLines puts the train's line above each leg in the detailed view.
+	trainLines bool
 	// Widths of the delay, station and platform columns of the stop lines.
 	delay, station, platform int
 	notes                    []note
@@ -222,15 +235,30 @@ func (v *journeyView) stops(j irail.Journey, changes []irail.Change) []string {
 			lines = append(lines, v.change(changes[0]))
 			changes = changes[1:]
 		}
-		if v.detailed {
-			lines = append(lines, indent+legLabel(leg, bold), v.stop(leg.Departure, ""))
-			for _, c := range leg.Calls {
-				lines = append(lines, v.call(c))
-			}
-		} else {
-			lines = append(lines, v.stop(leg.Departure, legLabel(leg, plain)))
+		if !v.detailed {
+			lines = append(lines, v.stop(leg.Departure, legLabel(leg, plain)), v.stop(leg.Arrival, ""))
+			continue
 		}
-		lines = append(lines, v.stop(leg.Arrival, ""))
+		if v.trainLines {
+			lines = append(lines, indent+legLabel(leg, bold))
+		}
+		lines = append(lines, v.stop(leg.Departure, position(leg.Departure.Arrived, leg.Departure.Passed, false)))
+		// passed follows the train along the leg, to mark where it is. A
+		// skipped stop is never left, so it does not hold the train back.
+		passed := leg.Departure.Passed
+		for _, c := range leg.Calls {
+			if c.Cancelled {
+				lines = append(lines, v.call(c, ""))
+				continue
+			}
+			lines = append(lines, v.call(c, position(c.Arrived, c.Passed, passed)))
+			passed = c.Passed
+		}
+		where := position(false, leg.Arrival.Passed, passed)
+		if leg.Arrival.Cancelled {
+			where = ""
+		}
+		lines = append(lines, v.stop(leg.Arrival, where))
 	}
 	return lines
 }
@@ -278,22 +306,38 @@ func (v *journeyView) stopPlatform(s irail.Stop) cell {
 const callMark = "· "
 
 // call draws a station the train stops at on the way, with its departure
-// time; dimmed once the train has left it.
-func (v *journeyView) call(c irail.Call) string {
+// time and the label that says where the train is, if any; dimmed once the
+// train has left it.
+func (v *journeyView) call(c irail.Call, where string) string {
 	at, late := callTime(c)
-	style, delay, label := plain, v.delayMark(late, ""), ""
+	style, delay, label := plain, v.delayMark(late, ""), where
 	switch {
 	case c.Cancelled:
 		style, delay, label = faint, "", alarm.Render("cancelled")
 	case c.EndsHere:
-		label = alarm.Render("train ends here")
+		label = strings.TrimSpace(where + "  " + alarm.Render("train ends here"))
+	case c.StartsHere:
+		label = strings.TrimSpace(where + "  " + alarm.Render("train starts here"))
 	case c.Extra:
-		label = faint.Render("extra stop")
+		label = strings.TrimSpace(where + "  " + faint.Render("extra stop"))
 	}
 	if c.Passed {
 		style = faint
 	}
 	return v.line(style, at, delay, callMark+c.Station, callPlatform(c), label)
+}
+
+// position says where the train is, for a stop it has arrived at or
+// passed, after the stop before it was passed or not: at this stop, or
+// heading for it.
+func position(arrived, passed, passedBefore bool) string {
+	switch {
+	case arrived && !passed:
+		return green.Render("train is here")
+	case passedBefore && !passed:
+		return green.Render("next stop")
+	}
+	return ""
 }
 
 // callTime is the time a call shows: when the train leaves, or when it

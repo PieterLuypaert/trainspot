@@ -17,6 +17,8 @@ type Departure struct {
 	Departed        bool
 	Extra           bool
 	Train           string
+	// Vehicle is the train's iRail id, such as BE.NMBS.IC2117.
+	Vehicle string
 	// Occupancy is how busy NMBS expects the train to be: low, medium or
 	// high, or empty when it has no estimate.
 	Occupancy string
@@ -90,6 +92,7 @@ func (d departureJSON) departure() Departure {
 		Departed:        bool(d.Left),
 		Extra:           bool(d.IsExtra),
 		Train:           trainName(d.VehicleInfo.ShortName, d.Vehicle),
+		Vehicle:         d.Vehicle,
 		Occupancy:       occupancy,
 	}
 }

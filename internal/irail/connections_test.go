@@ -46,6 +46,9 @@ func TestJourneysReadARecordedAnswer(t *testing.T) {
 		t.Fatalf("first journey has %d legs", len(first.Legs))
 	}
 	toBrussels, toArlon := first.Legs[0], first.Legs[1]
+	if toBrussels.Vehicle != "BE.NMBS.IC3614" {
+		t.Errorf("vehicle = %q", toBrussels.Vehicle)
+	}
 	if toBrussels.Train != "IC 3614" || toBrussels.Direction != "Leuven" || toBrussels.Departure.Station != "Gent-Sint-Pieters" || toBrussels.Arrival.Station != "Brussel-Zuid" {
 		t.Errorf("first leg = %+v", toBrussels)
 	}

@@ -55,9 +55,9 @@ func calls(from string, stations ...string) []irail.Call {
 func sampleTrip() irail.Trip {
 	return irail.Trip{Updated: at("16:36"), Journeys: []irail.Journey{
 		{Legs: []irail.Leg{
-			{Train: "IC 3615", Direction: "Leuven", Departure: stop("Gent-Sint-Pieters", "17:13", "9"),
+			{Train: "IC 3615", Vehicle: "BE.NMBS.IC3615", Direction: "Leuven", Departure: stop("Gent-Sint-Pieters", "17:13", "9"),
 				Calls: calls("17:20", "Wetteren", "Aalst", "Denderleeuw"), Arrival: stop("Brussel-Zuid", "18:07", "14")},
-			{Train: "IC 2118", Direction: "Aarlen", Departure: stop("Brussel-Zuid", "18:13", "15"),
+			{Train: "IC 2118", Vehicle: "BE.NMBS.IC2118", Direction: "Aarlen", Departure: stop("Brussel-Zuid", "18:13", "15"),
 				Calls:   calls("18:20", "Brussel-Centraal", "Brussel-Noord", "Leuven", "Ottignies", "Gembloux", "Namen", "Ciney", "Marloie", "Libramont", "Marbehan"),
 				Arrival: stop("Aarlen", "21:22", "2")},
 		}},
@@ -68,12 +68,13 @@ func sampleTrip() irail.Trip {
 }
 
 type fakeSource struct {
-	trips, boards     []string
-	tripErr, boardErr error
+	trips, boards, routes []string
+	tripErr, boardErr     error
 	// firstGone leaves the first journey out, as when it has left.
 	firstGone bool
 	// departures is how many departures the board lists; one when zero.
 	departures int
+	routeErrs  map[string]error
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -96,10 +97,29 @@ func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Li
 	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
 	for i := range max(1, f.departures) {
 		board.Departures = append(board.Departures, irail.Departure{
-			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Delay: 2 * time.Minute, Platform: "11", Train: "IC 535",
+			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Delay: 2 * time.Minute, Platform: "11",
+			Train: fmt.Sprintf("IC %d", 535+i), Vehicle: fmt.Sprintf("BE.NMBS.IC%d", 535+i),
 		})
 	}
 	return board, nil
+}
+
+// Route runs every train from Gent-Sint-Pieters by Wetteren and Aalst to
+// Brussel-Zuid, standing in Wetteren: past the first station, at the second.
+func (f *fakeSource) RouteThrough(_ context.Context, vehicleID, _ string, _ time.Time, _ string) (irail.Route, error) {
+	f.routes = append(f.routes, vehicleID)
+	if err := f.routeErrs[vehicleID]; err != nil {
+		return irail.Route{}, err
+	}
+	call := func(station, hhmm string, passed, arrived bool) irail.Call {
+		return irail.Call{Station: station, Arrival: at(hhmm), Departure: at(hhmm), Passed: passed, Arrived: arrived}
+	}
+	return irail.Route{Train: strings.TrimPrefix(vehicleID, "BE.NMBS."), Updated: at("16:40"), Stops: []irail.Call{
+		call("Gent-Sint-Pieters", "17:13", true, true),
+		call("Wetteren", "17:20", false, true),
+		call("Aalst", "17:30", false, false),
+		call("Brussel-Zuid", "18:07", false, false),
+	}}, nil
 }
 
 type harness struct {
@@ -452,7 +472,10 @@ func TestKeepsTheLegendAndStatusInViewOnAFullBoard(t *testing.T) {
 
 	h.press(letter('d'))
 
-	h.wantOnScreen("+2 = 2 min late", "Live NMBS data via iRail, updated 16:36", "more lines; a taller window shows them")
+	h.wantOnScreen("+2 = 2 min late", "Live NMBS data via iRail, updated 16:36")
+	if !regexp.MustCompile(`↓ \d+ more`).MatchString(h.screen()) {
+		t.Errorf("a full board does not say there is more below:\n%s", h.screen())
+	}
 	if lines := strings.Split(h.screen(), "\n"); len(lines) != 24 {
 		t.Errorf("%d lines, want 24", len(lines))
 	}
@@ -513,10 +536,10 @@ func TestKeepsTheStopsOfAJourneyWhoseTrainHasLeft(t *testing.T) {
 	h.src.firstGone = true
 	h.press(letter('r'))
 
-	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "IC 3615 to Leuven", "Its train has left")
+	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "IC 3615 to Leuven", "Following the train live")
 	h.press(esc)
 	h.wantOnScreen("▸ 18:46 → 22:10", "Live NMBS data via iRail, updated 16:36")
-	if strings.Contains(h.screen(), "Its train has left") {
+	if strings.Contains(h.screen(), "Following the train") {
 		t.Errorf("the note outlives the stops screen:\n%s", h.screen())
 	}
 }
@@ -541,7 +564,7 @@ func TestScrollStaysWithinTheListWhenTheWindowGrows(t *testing.T) {
 func TestNoScrollingWhenTheStopsFitExactly(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.press(enter)
-	main, tail, _ := h.m.stopsView()
+	main, tail, _ := h.m.scrollView()
 	h.send(tea.WindowSizeMsg{Width: 90, Height: len(main) + len(tail) + 2})
 
 	before := h.screen()
@@ -565,7 +588,7 @@ func TestPageDownMovesAWholePage(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 14})
 	h.press(enter)
-	_, _, shown := h.m.stopsView()
+	_, _, shown := h.m.scrollView()
 
 	h.press(tea.KeyPressMsg{Code: tea.KeyPgDown})
 
@@ -599,6 +622,100 @@ func TestKeyHintsMakeWayOnANarrowTerminal(t *testing.T) {
 	h.send(tea.WindowSizeMsg{Width: 120, Height: 24})
 	if bottom := lastLine(); !strings.Contains(bottom, "r refresh") {
 		t.Errorf("120 columns: %q", bottom)
+	}
+}
+
+func TestChoosesADepartureToSeeItsTrainsRoute(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+	h.press(letter('d'))
+	h.wantOnScreen("▸ 16:49", "enter route")
+
+	h.press(down, enter)
+
+	h.wantOnScreen("IC 536 to Oostende · from Gent-Sint-Pieters 16:50", "17:13  Gent-Sint-Pieters", "train is here", "· Aalst",
+		"18:07  Brussel-Zuid", "esc departures")
+	if len(h.src.routes) != 1 || h.src.routes[0] != "BE.NMBS.IC536" {
+		t.Errorf("routes asked for %v", h.src.routes)
+	}
+	h.press(esc)
+	h.wantOnScreen("Departures from Gent-Sint-Pieters", "▸ 16:50")
+}
+
+func TestKeepsTheChosenDepartureInViewOnALongBoard(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 30
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 20})
+	h.press(letter('d'))
+
+	for range 25 {
+		h.press(down)
+	}
+
+	h.wantOnScreen("▸ 17:14", "↑ ", "Live NMBS data via iRail")
+	if lines := strings.Split(h.screen(), "\n"); len(lines) != 20 {
+		t.Errorf("%d lines, want 20", len(lines))
+	}
+}
+
+func TestRefreshesTheRouteEveryMinute(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(letter('d'), enter)
+	asked := len(h.src.routes)
+
+	h.now = h.now.Add(time.Minute)
+	h.send(tickMsg(h.now))
+
+	if len(h.src.routes) != asked+1 {
+		t.Errorf("the route was not fetched again after a minute")
+	}
+}
+
+func TestFollowsAJourneyOnceItsTrainHasLeftTheList(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(enter)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	if strings.Join(h.src.routes, ",") != "BE.NMBS.IC3615,BE.NMBS.IC2118" {
+		t.Errorf("routes asked for %v, want both trains of the journey", h.src.routes)
+	}
+	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "· Wetteren", "train is here", "Following the train live, updated 16:40")
+}
+
+func TestFollowsTheOtherTrainsWhenOneCannotBeFound(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.routeErrs = map[string]error{"BE.NMBS.IC2118": errors.New("not found")}
+	h.press(enter)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	h.wantOnScreen("train is here", "Following the train live, updated 16:40")
+}
+
+func TestSaysSoWhenNoTrainOfTheJourneyCanBeFollowed(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.routeErrs = map[string]error{"BE.NMBS.IC3615": errors.New("not found")}
+	h.press(enter)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	h.wantOnScreen("IC 3615 to Leuven", "could not refresh: not found")
+}
+
+func TestARouteOpensAtTheTopAfterScrollingTheStops(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 9})
+	h.press(enter, down, down, down, down, down, esc)
+
+	h.press(letter('d'), enter)
+
+	h.wantOnScreen("17:13  Gent-Sint-Pieters")
+	if h.m.scroll != 0 {
+		t.Errorf("the route opened scrolled %d lines down", h.m.scroll)
 	}
 }
 

@@ -70,7 +70,7 @@ func TestLiveboardReadsARecordedBoard(t *testing.T) {
 		t.Errorf("Updated = %v", board.Updated)
 	}
 	first := board.Departures[0]
-	if first.Destination != "Brugge" || first.Train != "L 13097" || first.Platform != "6" || !first.PlatformChanged {
+	if first.Destination != "Brugge" || first.Train != "L 13097" || first.Vehicle != "BE.NMBS.L13097" || first.Platform != "6" || !first.PlatformChanged {
 		t.Errorf("first departure = %+v", first)
 	}
 	antwerp := board.Departures[3]
