@@ -84,3 +84,14 @@ func TestFollowLeavesALegOffTheRouteAlone(t *testing.T) {
 		t.Errorf("Follow changed a leg that is not on the route: %+v", got)
 	}
 }
+
+func TestRouteIsOneLegFromTheFirstStationToTheLast(t *testing.T) {
+	leg := recordedRoute(t).Leg()
+
+	if leg.Train != "IC 2117" || leg.Direction != "Luxemburg" || leg.Departure.Station != "Brussel-Zuid" || leg.Arrival.Station != "Luxemburg" {
+		t.Errorf("leg = %+v", leg)
+	}
+	if len(leg.Calls) != 12 || !leg.Departure.Passed || leg.Arrival.Passed {
+		t.Errorf("%d calls, departure passed %v, arrival passed %v", len(leg.Calls), leg.Departure.Passed, leg.Arrival.Passed)
+	}
+}

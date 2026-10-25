@@ -53,17 +53,37 @@ func (l Leg) Follow(r Route) Leg {
 		return l
 	}
 	to += from + 1
-	dep, arr := r.Stops[from], r.Stops[to]
-	l.Departure = Stop{
-		Station: dep.Station, Scheduled: dep.Departure, Delay: dep.DepartureDelay,
-		Platform: dep.Platform, PlatformChanged: dep.PlatformChanged,
-		Cancelled: dep.Cancelled || dep.EndsHere, Passed: dep.Passed,
-	}
-	l.Calls = slices.Clone(r.Stops[from+1 : to])
-	l.Arrival = Stop{
-		Station: arr.Station, Scheduled: arr.Arrival, Delay: arr.ArrivalDelay,
-		Platform: arr.Platform, PlatformChanged: arr.PlatformChanged,
-		Cancelled: arr.Cancelled, Passed: arr.Arrived,
-	}
+	l.Departure, l.Calls, l.Arrival = departureStop(r.Stops[from]), slices.Clone(r.Stops[from+1:to]), arrivalStop(r.Stops[to])
 	return l
+}
+
+// Leg is the whole run as one leg: from the first station to the last, with
+// every stop in between as its calls.
+func (r Route) Leg() Leg {
+	if len(r.Stops) < 2 {
+		return Leg{Train: r.Train}
+	}
+	first, last := r.Stops[0], r.Stops[len(r.Stops)-1]
+	return Leg{
+		Train: r.Train, Direction: last.Station,
+		Departure: departureStop(first), Calls: slices.Clone(r.Stops[1 : len(r.Stops)-1]), Arrival: arrivalStop(last),
+	}
+}
+
+// departureStop is where a leg leaves, taken from the train's call there.
+func departureStop(c Call) Stop {
+	return Stop{
+		Station: c.Station, Scheduled: c.Departure, Delay: c.DepartureDelay,
+		Platform: c.Platform, PlatformChanged: c.PlatformChanged,
+		Cancelled: c.Cancelled || c.EndsHere, Passed: c.Passed,
+	}
+}
+
+// arrivalStop is where a leg arrives, taken from the train's call there.
+func arrivalStop(c Call) Stop {
+	return Stop{
+		Station: c.Station, Scheduled: c.Arrival, Delay: c.ArrivalDelay,
+		Platform: c.Platform, PlatformChanged: c.PlatformChanged,
+		Cancelled: c.Cancelled, Passed: c.Arrived,
+	}
 }
