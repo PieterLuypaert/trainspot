@@ -28,11 +28,11 @@ type Config struct {
 	Lang     string
 	Location *time.Location
 	Now      func() time.Time
-	// From and To are the station ids of the trip to open on, such as the
-	// last one; without them the screen opens on the form.
-	From, To string
-	// Remember saves a trip so that the next start opens on it.
-	Remember func(fromID, toID string) error
+	// Recent are the recent trips, the last one first. The screen opens on
+	// the first, or on the form without any.
+	Recent Trips
+	// Remember saves the recent trips whenever a trip is picked.
+	Remember func(Trips) error
 	// TickEvery is how often the screen updates its clock and checks
 	// whether to refresh; 15 seconds when zero.
 	TickEvery time.Duration
@@ -107,6 +107,20 @@ type Model struct {
 	// first is the fetch of the trip the screen opens on. New prepares it,
 	// since Init cannot keep the id it would start.
 	first tea.Cmd
+	// recent are the recent trips as saved, and picks those the form lists
+	// to pick, with their stations.
+	recent Trips
+	picks  []recentTrip
+	// preview is the board of the station previewID, shown beside the form
+	// while that station is in the From field; previewAt is when it came.
+	preview   irail.Liveboard
+	previewID string
+	previewAt time.Time
+	// previewAsked is the station whose board the form last asked for, and
+	// when; previewErr is what went wrong with that fetch.
+	previewAsked   string
+	previewAskedAt time.Time
+	previewErr     error
 }
 
 type tripMsg struct {
@@ -115,18 +129,24 @@ type tripMsg struct {
 	err  error
 }
 
+// boardMsg is the board of a station, for the departures or for the form.
 type boardMsg struct {
-	id    int
-	board irail.Liveboard
-	err   error
+	id      int
+	station string
+	board   irail.Liveboard
+	err     error
 }
 
 type tickMsg time.Time
 
 func New(cfg Config) Model {
 	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}}
-	from, hasFrom := cfg.Stations.ByID(cfg.From)
-	to, hasTo := cfg.Stations.ByID(cfg.To)
+	m.setRecent(cfg.Recent)
+	if len(cfg.Recent) == 0 {
+		return m
+	}
+	from, hasFrom := cfg.Stations.ByID(cfg.Recent[0].From)
+	to, hasTo := cfg.Stations.ByID(cfg.Recent[0].To)
 	if hasFrom && hasTo && from.ID != to.ID {
 		m.setTrip(from, to)
 		m.screen = journeys
@@ -167,6 +187,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg, tea.WindowSizeMsg, tripMsg, boardMsg, routeMsg, followMsg:
 		m.keepInView()
 	}
+	if m.screen == planning {
+		if preview := m.previewFrom(); preview != nil {
+			cmd = tea.Batch(cmd, preview)
+		}
+	}
 	return m, cmd
 }
 
@@ -193,7 +218,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetch
 		}
 	case boardMsg:
-		m.gotBoard(msg)
+		if m.screen == planning {
+			m.gotPreview(msg)
+		} else {
+			m.gotBoard(msg)
+		}
 	case routeMsg:
 		m.gotRoute(msg)
 	case followMsg:
@@ -247,6 +276,8 @@ func (m *Model) fetch() tea.Cmd {
 		return m.fetchFollow()
 	case m.screen == journeys || m.screen == stops:
 		return m.fetchTrip()
+	case m.screen == planning && m.fields[0].station != nil:
+		return m.fetchPreview()
 	}
 	return nil
 }
@@ -280,6 +311,9 @@ func (m Model) planningKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		f.clear()
 	default:
+		if n, ok := m.recentKey(k.Text); ok {
+			return m.pickRecent(n)
+		}
 		m.typed(k.Text)
 		return m, nil
 	}
@@ -339,8 +373,9 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 func (m Model) startTrip(from, to stations.Station) (tea.Model, tea.Cmd) {
 	m.setTrip(from, to)
 	m.screen = journeys
+	m.setRecent(m.recent.With(Trip{From: from.ID, To: to.ID}))
 	if m.cfg.Remember != nil {
-		if err := m.cfg.Remember(from.ID, to.ID); err != nil {
+		if err := m.cfg.Remember(m.recent); err != nil {
 			m.note = "could not remember this trip for next time: " + err.Error()
 		}
 	}
@@ -470,10 +505,14 @@ func (m *Model) fetchTrip() tea.Cmd {
 }
 
 func (m *Model) fetchBoard() tea.Cmd {
-	id, source, stationID, lang := m.begin(), m.cfg.Source, m.from.ID, m.cfg.Lang
+	return m.fetchLiveboard(m.from.ID)
+}
+
+func (m *Model) fetchLiveboard(stationID string) tea.Cmd {
+	id, source, lang := m.begin(), m.cfg.Source, m.cfg.Lang
 	return func() tea.Msg {
 		board, err := source.Liveboard(context.Background(), stationID, lang)
-		return boardMsg{id: id, board: board, err: err}
+		return boardMsg{id: id, station: stationID, board: board, err: err}
 	}
 }
 

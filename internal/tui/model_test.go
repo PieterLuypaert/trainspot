@@ -75,7 +75,9 @@ type fakeSource struct {
 	// departures is how many departures the board lists; one when zero.
 	departures int
 	// trip, when set, is the answer for journeys instead of sampleTrip.
-	trip      *irail.Trip
+	trip *irail.Trip
+	// board, when set, is the answer for every board.
+	board     *irail.Liveboard
 	routeErrs map[string]error
 }
 
@@ -98,6 +100,9 @@ func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Li
 	f.boards = append(f.boards, stationID)
 	if f.boardErr != nil {
 		return irail.Liveboard{}, f.boardErr
+	}
+	if f.board != nil {
+		return *f.board, nil
 	}
 	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
 	for i := range max(1, f.departures) {
@@ -137,12 +142,16 @@ type harness struct {
 
 func newHarness(t *testing.T, from, to string) *harness {
 	h := &harness{t: t, src: &fakeSource{}, now: at("16:36")}
+	var recent Trips
+	if from != "" {
+		recent = Trips{{From: from, To: to}}
+	}
 	h.m = New(Config{
 		Source: h.src, Stations: testStations, Lang: "nl", Location: brussels,
-		Now:  func() time.Time { return h.now },
-		From: from, To: to,
-		Remember: func(fromID, toID string) error {
-			h.remembered = append(h.remembered, fromID+">"+toID)
+		Now:    func() time.Time { return h.now },
+		Recent: recent,
+		Remember: func(trips Trips) error {
+			h.remembered = append(h.remembered, trips[0].From+">"+trips[0].To)
 			return nil
 		},
 		TickEvery: time.Nanosecond,
@@ -382,7 +391,7 @@ func TestRefreshesEveryMinute(t *testing.T) {
 }
 
 func TestDropsAnAnswerForATripThatChanged(t *testing.T) {
-	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID, TickEvery: time.Nanosecond})
+	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, Recent: Trips{{From: gentID, To: aarlenID}}, TickEvery: time.Nanosecond})
 	first := m.Init()
 
 	next, _ := m.Update(letter('s'))
@@ -488,7 +497,7 @@ func TestKeepsTheLegendAndStatusInViewOnAFullBoard(t *testing.T) {
 
 func TestSaysWhenTheTripCannotBeRemembered(t *testing.T) {
 	h := newHarness(t, "", "")
-	h.m.cfg.Remember = func(string, string) error { return errors.New("disk full") }
+	h.m.cfg.Remember = func(Trips) error { return errors.New("disk full") }
 
 	h.typeText("gent sint")
 	h.press(enter)
@@ -606,7 +615,7 @@ func TestTheStopsTitleNamesTheDayAndACancellation(t *testing.T) {
 	j := &trip.Journeys[0]
 	j.Legs[0].Departure.Scheduled = j.Legs[0].Departure.Scheduled.AddDate(0, 0, 1)
 	j.Legs[1].Arrival.Cancelled = true
-	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID})
+	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, Recent: Trips{{From: gentID, To: aarlenID}}})
 	m.trip, m.screen = trip, stops
 
 	if title := strings.Split(ansi.Strip(m.View().Content), "\n")[0]; !strings.Contains(title, "Mon 26 Oct 17:13 → 21:22 cancelled") {
@@ -811,6 +820,215 @@ func TestATinyJourneysScreenKeepsItsStatusLine(t *testing.T) {
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 8})
 
 	h.wantOnScreen("Live NMBS data via iRail")
+}
+
+func twoRecentTrips(t *testing.T) *harness {
+	h := newHarness(t, gentID, aarlenID)
+	h.m.setRecent(Trips{{From: gentID, To: aarlenID}, {From: brusselID, To: gentID}})
+	h.press(letter('e'))
+	return h
+}
+
+func TestTheFormListsTheRecentTripsToPickByNumber(t *testing.T) {
+	h := twoRecentTrips(t)
+	h.wantOnScreen("Recent trips", "1  Gent-Sint-Pieters → Aarlen", "2  Brussel-Zuid → Gent-Sint-Pieters", "1-2 recent trip")
+
+	h.press(letter('2'))
+
+	h.wantOnScreen("Brussel-Zuid → Gent-Sint-Pieters")
+	if last := h.remembered[len(h.remembered)-1]; last != brusselID+">"+gentID {
+		t.Errorf("remembered %s, want the picked trip first", last)
+	}
+}
+
+func TestANumberTypedIntoANameIsJustText(t *testing.T) {
+	h := twoRecentTrips(t)
+
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("a2")
+
+	h.wantOnScreen("To    a2▌")
+}
+
+func TestTheFormShowsTheNextDeparturesFromTheChosenStation(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.wantOnScreen("Pick where you leave from to see its next trains.")
+
+	h.typeText("gent sint")
+	h.press(enter)
+
+	h.wantOnScreen("Next from Gent-Sint-Pieters", "Oostende", "IC 535")
+	if len(h.src.boards) != 1 || h.src.boards[0] != gentID {
+		t.Errorf("boards asked for %v", h.src.boards)
+	}
+}
+
+func TestAWideFormHasItsSidePaneBesideIt(t *testing.T) {
+	h := twoRecentTrips(t)
+	h.send(tea.WindowSizeMsg{Width: 130, Height: 30})
+
+	var row string
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "From  Gent-Sint-Pieters") {
+			row = l
+		}
+	}
+	if !strings.Contains(row, "Recent trips") {
+		t.Errorf("the recent trips are not beside the form: %q", row)
+	}
+	h.wantOnScreen("Next from Gent-Sint-Pieters")
+}
+
+// sendOnly updates the model without running the commands it returns, as
+// while their answers are on their way.
+func (h *harness) sendOnly(msg tea.Msg) tea.Cmd {
+	h.t.Helper()
+	next, cmd := h.m.Update(msg)
+	h.m = next.(Model)
+	return cmd
+}
+
+func (h *harness) answer(cmds ...tea.Cmd) {
+	h.t.Helper()
+	for _, cmd := range cmds {
+		for _, msg := range run(h.t, cmd) {
+			if _, tick := msg.(tickMsg); !tick {
+				h.send(msg)
+			}
+		}
+	}
+}
+
+var shiftTab = tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
+
+func TestANewFromStationNeverShowsTheOldStationsBoard(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("gent sint")
+	h.press(enter, shiftTab, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("brussel z")
+
+	fetch := h.sendOnly(enter)
+
+	h.wantOnScreen("Looking up departures from Brussel-Zuid…")
+	if strings.Contains(h.screen(), "IC 535") {
+		t.Errorf("Gent's board shows while Brussel-Zuid's is on its way:\n%s", h.screen())
+	}
+	h.answer(fetch)
+	h.wantOnScreen("Next from Brussel-Zuid", "IC 535")
+}
+
+func TestTabbingWhileTheBoardIsOnItsWayAsksOnce(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("gent sint")
+
+	cmds := []tea.Cmd{h.sendOnly(enter)}
+	for range 4 {
+		cmds = append(cmds, h.sendOnly(tab))
+	}
+	h.answer(cmds...)
+
+	if len(h.src.boards) != 1 {
+		t.Errorf("asked for %d boards, want 1: %v", len(h.src.boards), h.src.boards)
+	}
+	h.wantOnScreen("Next from Gent-Sint-Pieters")
+}
+
+func TestTheSameStationNoteStillLooksUpTheNewFromStation(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("brussel z")
+	h.press(enter)
+	h.typeText("gent sint")
+	h.press(tab, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("gent sint")
+
+	h.press(enter)
+
+	h.wantOnScreen("From and To are the same station", "Next from Gent-Sint-Pieters")
+	if got := strings.Join(h.src.boards, " "); got != brusselID+" "+gentID {
+		t.Errorf("boards asked for %s", got)
+	}
+}
+
+func TestAFailedRefreshBesideTheFormSaysSo(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("gent sint")
+	h.press(enter)
+	h.wantOnScreen("Live NMBS data via iRail, updated 16:36")
+
+	h.src.boardErr = errors.New("no network")
+	h.now = h.now.Add(2 * time.Minute)
+	h.send(tickMsg(h.now))
+
+	h.wantOnScreen("could not refresh: no network", "IC 535")
+}
+
+func TestAFailedBoardBesideTheFormIsNotAskedForOnEveryKey(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.src.boardErr = errors.New("no network")
+	h.typeText("gent sint")
+
+	h.press(enter, tab, tab)
+
+	h.wantOnScreen("Could not get the departures: no network")
+	if len(h.src.boards) != 1 {
+		t.Errorf("asked for %d boards, want 1", len(h.src.boards))
+	}
+}
+
+func TestTheBoardBesideTheFormExplainsOnlyWhatShows(t *testing.T) {
+	h := newHarness(t, "", "")
+	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	for i := range 30 {
+		board.Departures = append(board.Departures, irail.Departure{
+			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Platform: "11", Train: fmt.Sprintf("IC %d", 535+i),
+		})
+	}
+	board.Departures[29].Delay = 7 * time.Minute
+	h.src.board = &board
+	h.typeText("gent sint")
+
+	h.press(enter)
+
+	h.wantOnScreen("IC 535", "more; a taller window shows them", "Live NMBS data via iRail")
+	if strings.Contains(h.screen(), "min late") {
+		t.Errorf("the legend explains a delay that does not show:\n%s", h.screen())
+	}
+}
+
+func TestTheRecentTripHintMakesWayAndHidesWhileTyping(t *testing.T) {
+	h := twoRecentTrips(t)
+
+	h.send(tea.WindowSizeMsg{Width: 64, Height: 30})
+	h.wantOnScreen("esc back")
+	if strings.Contains(h.screen(), "recent trip ") {
+		t.Errorf("the recent trip hint did not make way for esc:\n%s", h.screen())
+	}
+
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("gen")
+	if strings.Contains(h.screen(), "1-2 recent trip") {
+		t.Errorf("the hint offers numbers that would be typed:\n%s", h.screen())
+	}
+}
+
+func TestARecentTripFromAStationToItselfIsLeftOut(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.m.setRecent(Trips{{From: gentID, To: gentID}, {From: brusselID, To: gentID}})
+	h.press(letter('e'))
+
+	h.wantOnScreen("1  Brussel-Zuid → Gent-Sint-Pieters", "1 recent trip")
+	if strings.Contains(h.screen(), "Gent-Sint-Pieters → Gent-Sint-Pieters") {
+		t.Errorf("a trip from a station to itself is listed:\n%s", h.screen())
+	}
+}
+
+func TestAWideFormWrapsItsHint(t *testing.T) {
+	h := newHarness(t, "", "")
+
+	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
+
+	h.wantOnScreen("Type a station's name", "brussels airport.")
 }
 
 func TestQuits(t *testing.T) {

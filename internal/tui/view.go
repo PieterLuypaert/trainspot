@@ -67,7 +67,7 @@ func (m Model) render() string {
 		main, tail, shown := m.scrollView()
 		return frame(m.routeTitle(), clock, scrollBody(main, tail, shown, m.scroll), routeKeys, width, height)
 	}
-	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
+	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner, room), m.planningKeys(), width, height)
 }
 
 var (
@@ -84,7 +84,15 @@ func (m Model) planningKeys() []key {
 	if m.hasTrip() {
 		back = key{name: "esc", does: "back"}
 	}
-	return []key{{name: "tab", does: "next field"}, {name: "↑↓", does: "choose"}, {name: "enter", does: "search"}, back}
+	keys := []key{{name: "tab", does: "next field"}, {name: "↑↓", does: "choose"}, {name: "enter", does: "search"}}
+	if m.picksByNumber() {
+		numbers := "1"
+		if n := len(m.picks); n > 1 {
+			numbers = fmt.Sprintf("1-%d", n)
+		}
+		keys = append(keys, key{name: numbers, does: "recent trip", optional: true})
+	}
+	return append(keys, back)
 }
 
 func (m Model) tripTitle() string {
@@ -99,7 +107,19 @@ func (m Model) departuresTitle() string {
 	return title
 }
 
-func (m Model) planningBody(width int) []string {
+// planningBody puts the form on the left and, beside it in a wide window
+// or under it in a narrow one, the recent trips and the next departures
+// from the station in the From field.
+func (m Model) planningBody(width, room int) []string {
+	if width >= twoPanesWidth {
+		formWidth := width / 2
+		return sideBySide(m.formLines(formWidth), m.planningSide(width-formWidth-lipgloss.Width(divider), room), formWidth)
+	}
+	form := m.formLines(width)
+	return append(form, m.planningSide(width, room-len(form))...)
+}
+
+func (m Model) formLines(width int) []string {
 	body := []string{""}
 	for i, f := range m.fields {
 		body = append(body, m.fieldLine(i, f))
@@ -109,11 +129,20 @@ func (m Model) planningBody(width int) []string {
 	}
 	switch {
 	case m.note != "":
-		body = append(body, "", indent+alarm.Render(m.note))
+		body = append(append(body, ""), wrap(m.note, width, alarm)...)
 	case m.fields[m.focus].text == "":
-		body = append(body, "", indent+faint.Render("Type a station's name in any language, such as gent, liège or brussels airport."))
+		body = append(append(body, ""), wrap("Type a station's name in any language, such as gent, liège or brussels airport.", width, faint)...)
 	}
 	return body
+}
+
+// wrap breaks text into indented lines in style that fit width.
+func wrap(text string, width int, style lipgloss.Style) []string {
+	var lines []string
+	for _, line := range strings.Split(ansi.Wordwrap(text, max(1, width-len(indent)), ""), "\n") {
+		lines = append(lines, indent+style.Render(line))
+	}
+	return lines
 }
 
 func (m Model) fieldLine(i int, f field) string {

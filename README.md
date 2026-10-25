@@ -35,9 +35,10 @@ trainspot liège-guillemins --lang fr      # station names in French: nl, fr, en
 
 Plain `trainspot` opens a full screen to plan a trip. Type where you leave from and
 where you are going, and it suggests stations as you type, in any of the four languages.
-Pick one with the arrow keys and enter, or tab to the other field. Once both are set,
-enter shows the next journeys; in a wide window the chosen journey's route line stands
-beside them, in a narrow one under them.
+Pick one with the arrow keys and enter, or tab to the other field. Beside the form stand
+your recent trips, each picked with its number, and the next departures from where you
+leave. Once both stations are set, enter shows the next journeys; in a wide window the
+chosen journey's route line stands beside them, in a narrow one under them.
 
 On the journeys, enter shows every stop of the chosen journey down a route line: per
 train how long it rides and how often it stops, a dot where you get on and off with its
@@ -48,8 +49,8 @@ When the journey's first train has left, trainspot keeps following its trains li
 `d` shows the departure board of where the trip starts; there, choose a train with the
 arrow keys and press enter to see its whole run and where it is now. `s` swaps the two
 stations, `e` edits them and `r` fetches everything again; it also refreshes by itself
-every minute. trainspot remembers the trip in `~/.config/trainspot` and opens on
-it the next time, so your daily trip is one word away.
+every minute. trainspot remembers your last five trips in `~/.config/trainspot` and opens on
+the last one the next time, so your daily trip is one word away.
 
 ## Departures
 
