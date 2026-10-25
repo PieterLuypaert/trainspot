@@ -34,7 +34,9 @@ type Fetcher interface {
 // that and about a list that could not be saved.
 func Load(ctx context.Context, f Fetcher, path string, now time.Time, warn io.Writer) (*Directory, error) {
 	saved, savedErr := readCache(path)
-	if savedErr == nil && now.Sub(saved.Fetched) < MaxAge {
+	// A list from the future was saved while the clock ran ahead; its age
+	// says nothing, so it is refreshed.
+	if savedErr == nil && !saved.Fetched.After(now) && now.Sub(saved.Fetched) < MaxAge {
 		return NewDirectory(saved.Stations), nil
 	}
 

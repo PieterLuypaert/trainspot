@@ -85,6 +85,16 @@ func TestLoadRefreshesAnOldList(t *testing.T) {
 	}
 }
 
+func TestLoadRefreshesAListSavedWhileTheClockRanAhead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stations.json")
+	save(t, path, now.AddDate(1, 0, 0))
+	f := &fakeFetcher{}
+
+	if _, err := Load(context.Background(), f, path, now, &bytes.Buffer{}); err != nil || len(f.calls) != 4 {
+		t.Errorf("err %v, fetched %v", err, f.calls)
+	}
+}
+
 func TestLoadFallsBackToAnOldListWhenOffline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stations.json")
 	save(t, path, time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC))
