@@ -498,8 +498,9 @@ func TestShowsEveryStopOfTheChosenJourney(t *testing.T) {
 
 	h.press(enter)
 
-	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "IC 3615 to Leuven", "· Wetteren", "· Denderleeuw",
-		"change 6 min", "IC 2118 to Aarlen", "· Marbehan", "21:22  Aarlen", "esc journeys")
+	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "4h09 · 1 change · leaves platform 9 · arrives platform 2",
+		"IC 3615 to Leuven", "│  Wetteren", "│  Denderleeuw", "Change at Brussel-Zuid · 6 min · platform 14 → 15",
+		"IC 2118 to Aarlen", "│  Marbehan", "●  Aarlen", "esc journeys")
 	h.press(esc)
 	h.wantOnScreen("▸ 17:13 → 21:22")
 }
@@ -512,10 +513,10 @@ func TestScrollsThroughALongListOfStops(t *testing.T) {
 	if !moreBelow.MatchString(h.screen()) {
 		t.Errorf("a long list does not say there is more below:\n%s", h.screen())
 	}
-	h.wantOnScreen("· Wetteren")
+	h.wantOnScreen("│  Wetteren")
 
-	h.press(down, down, down)
-	h.wantOnScreen("↑ 3 more")
+	h.press(down, down, down, down)
+	h.wantOnScreen("↑ 4 more")
 	if strings.Contains(h.screen(), "IC 3615 to Leuven") {
 		t.Errorf("scrolling down kept the first lines:\n%s", h.screen())
 	}
@@ -523,7 +524,7 @@ func TestScrollsThroughALongListOfStops(t *testing.T) {
 	for range 40 {
 		h.press(down)
 	}
-	h.wantOnScreen("21:22  Aarlen", "Live NMBS data via iRail, updated 16:36")
+	h.wantOnScreen("●  Aarlen", "Live NMBS data via iRail, updated 16:36")
 	if moreBelow.MatchString(h.screen()) {
 		t.Errorf("at the end of the list it still says there is more:\n%s", h.screen())
 	}
@@ -633,8 +634,8 @@ func TestChoosesADepartureToSeeItsTrainsRoute(t *testing.T) {
 
 	h.press(down, enter)
 
-	h.wantOnScreen("IC 536 to Oostende · from Gent-Sint-Pieters 16:50", "17:13  Gent-Sint-Pieters", "train is here", "· Aalst",
-		"18:07  Brussel-Zuid", "esc departures")
+	h.wantOnScreen("IC 536 to Oostende · from Gent-Sint-Pieters 16:50", "54 min · from Gent-Sint-Pieters to Brussel-Zuid · 2 stops on the way",
+		"●  Gent-Sint-Pieters", "◆  Wetteren", "train is here", "│  Aalst", "●  Brussel-Zuid", "esc departures")
 	if len(h.src.routes) != 1 || h.src.routes[0] != "BE.NMBS.IC536" {
 		t.Errorf("routes asked for %v", h.src.routes)
 	}
@@ -681,7 +682,7 @@ func TestFollowsAJourneyOnceItsTrainHasLeftTheList(t *testing.T) {
 	if strings.Join(h.src.routes, ",") != "BE.NMBS.IC3615,BE.NMBS.IC2118" {
 		t.Errorf("routes asked for %v, want both trains of the journey", h.src.routes)
 	}
-	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "· Wetteren", "train is here", "Following the train live, updated 16:40")
+	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "◆  Wetteren", "train is here", "Following the train live, updated 16:40")
 }
 
 func TestFollowsTheOtherTrainsWhenOneCannotBeFound(t *testing.T) {
@@ -713,7 +714,7 @@ func TestARouteOpensAtTheTopAfterScrollingTheStops(t *testing.T) {
 
 	h.press(letter('d'), enter)
 
-	h.wantOnScreen("17:13  Gent-Sint-Pieters")
+	h.wantOnScreen("●  Gent-Sint-Pieters")
 	if h.m.scroll != 0 {
 		t.Errorf("the route opened scrolled %d lines down", h.m.scroll)
 	}

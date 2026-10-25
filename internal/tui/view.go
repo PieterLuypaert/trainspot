@@ -365,7 +365,7 @@ func (m Model) stopsBody(width int) (main, tail []string) {
 		source = indent + faint.Render("Following the train live, updated "+m.leftAt.In(m.cfg.Location).Format("15:04"))
 	}
 	tail = append(append([]string{""}, legend...), m.status(source))
-	return append([]string{""}, lines...), tail
+	return append([]string{"", indent + board.JourneySummary(m.shownJourney()), ""}, lines...), tail
 }
 
 // routeTitle names the train, where it heads, and when it leaves the
@@ -387,9 +387,18 @@ func (m Model) routeBody(width int) (main, tail []string) {
 	case len(m.route.Stops) < 2:
 		return []string{"", indent + "iRail has no route for this train."}, nil
 	}
-	lines, legend := board.RouteStops(m.route, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	lines, legend := board.RouteStops(m.route, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}, m.boardStation())
 	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.route.Updated, m.cfg.Location)))
-	return append([]string{""}, lines...), tail
+	return append([]string{"", indent + board.RouteSummary(m.route), ""}, lines...), tail
+}
+
+// boardStation is the name of the station whose board is on hand, as iRail
+// names it in the routes.
+func (m Model) boardStation() string {
+	if m.board.Station != "" {
+		return m.board.Station
+	}
+	return m.from.Name(m.cfg.Lang)
 }
 
 // scrollView lays the stops or the route out once for the window: the
