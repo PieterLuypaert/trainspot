@@ -1410,6 +1410,29 @@ func TestTheBoardsLegendRunsUnderThePaneToo(t *testing.T) {
 	}
 }
 
+func TestTheBoardsLegendExplainsOnlyTheDeparturesInView(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	for i := range 30 {
+		board.Departures = append(board.Departures, irail.Departure{
+			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Platform: "11",
+			Train: fmt.Sprintf("IC %d", 535+i), Vehicle: fmt.Sprintf("BE.NMBS.IC%d", 535+i),
+		})
+	}
+	board.Departures[29].Delay = 7 * time.Minute
+	h.src.board = &board
+
+	h.press(letter('d'))
+	if strings.Contains(h.screen(), "min late") {
+		t.Errorf("the legend explains a delay that does not show:\n%s", h.screen())
+	}
+
+	for range 29 {
+		h.press(down)
+	}
+	h.wantOnScreen("+7 = 7 min late")
+}
+
 func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.src.departures = 3

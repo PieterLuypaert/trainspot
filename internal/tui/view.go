@@ -378,11 +378,21 @@ func (m Model) departuresView(width, room int) (head, rows, tail []string, shown
 	if m.boardChoice < len(rows) {
 		rows[m.boardChoice] = bold.Render("▸ ") + strings.TrimPrefix(rows[m.boardChoice], indent)
 	}
-	tail = m.tail(legend, board.Footer(m.board.Updated, m.cfg.Location))
-	if space := room - len(head) - len(tail); len(rows) > space {
-		return head, rows, tail, max(0, space-1)
+	footer := board.Footer(m.board.Updated, m.cfg.Location)
+	shown = len(rows)
+	if space := room - len(head) - len(m.tail(legend, footer)); len(rows) > space {
+		shown = max(0, space-1)
 	}
-	return head, rows, tail, len(rows)
+	// The rows that fit are counted beside the legend of the whole board,
+	// so the board keeps its height as it scrolls; the legend is drawn
+	// from the rows in view, so it explains only what shows.
+	if shown < len(rows) {
+		first := max(0, min(m.boardScroll, len(rows)-shown))
+		inView := m.board
+		inView.Departures = m.board.Departures[first : first+shown]
+		_, legend = board.DepartureLines(inView, o)
+	}
+	return head, rows, m.tail(legend, footer), shown
 }
 
 // showBoardChoice scrolls the board just enough to keep the chosen
