@@ -53,7 +53,7 @@ func TestJourneyStopsDrawARouteLine(t *testing.T) {
 	if !strings.Contains(lines[2], faint.Render("Wetteren")) || !strings.Contains(lines[1], faint.Render("Gent-Sint-Pieters")) {
 		t.Errorf("passed stations are not dimmed:\n%q\n%q", lines[1], lines[2])
 	}
-	if text := plainLines(legend); !strings.Contains(text, "min late") {
+	if text := plainLines(legend.Lines(80)); !strings.Contains(text, "min late") {
 		t.Errorf("legend = %q", text)
 	}
 }
@@ -125,8 +125,8 @@ func TestStopsSayWhereATrainEndsAndDropASkippedStopsDelay(t *testing.T) {
 	if !regexp.MustCompile(`15:20 \+2  │  Aalst +train ends here`).MatchString(text) {
 		t.Errorf("the stop where the train now ends:\n%s", text)
 	}
-	if !regexp.MustCompile(`Wetteren +cancelled`).MatchString(text) || strings.Contains(text, "+7") || strings.Contains(plainLines(legend), "+7") {
-		t.Errorf("a skipped stop:\n%s\n%s", text, plainLines(legend))
+	if !regexp.MustCompile(`Wetteren +cancelled`).MatchString(text) || strings.Contains(text, "+7") || strings.Contains(plainLines(legend.Lines(80)), "+7") {
+		t.Errorf("a skipped stop:\n%s\n%s", text, plainLines(legend.Lines(80)))
 	}
 	if !regexp.MustCompile(`Brussel-Zuid +cancelled`).MatchString(text) || strings.Contains(text, "next stop") {
 		t.Errorf("a cancelled arrival:\n%s", text)
@@ -215,8 +215,8 @@ func TestTheRouteLineKeepsWhatMattersOnANarrowTerminal(t *testing.T) {
 		if strings.Contains(text, "platform 4") != strings.Contains(text, "platform 11") {
 			t.Errorf("width %d mixes the long and short platform:\n%s", width, text)
 		}
-		if !strings.Contains(plainLines(legend), "4 ! = platform changed") {
-			t.Errorf("width %d: legend = %q", width, plainLines(legend))
+		if !strings.Contains(plainLines(legend.Lines(80)), "4 ! = platform changed") {
+			t.Errorf("width %d: legend = %q", width, plainLines(legend.Lines(80)))
 		}
 	}
 }
@@ -228,8 +228,8 @@ func TestACancelledStopShowsNoDelayAndNoTrainMarker(t *testing.T) {
 	lines, legend := JourneyStops(j, JourneyOptions{Width: 80, Now: at("17:00"), Location: brussels})
 	text := plainLines(lines)
 
-	if strings.Contains(text, "◆") || strings.Contains(text, "+9") || strings.Contains(plainLines(legend), "+9") {
-		t.Errorf("a cancelled stop shows the train or its delay:\n%s\n%s", text, plainLines(legend))
+	if strings.Contains(text, "◆") || strings.Contains(text, "+9") || strings.Contains(plainLines(legend.Lines(80)), "+9") {
+		t.Errorf("a cancelled stop shows the train or its delay:\n%s\n%s", text, plainLines(legend.Lines(80)))
 	}
 }
 
@@ -291,7 +291,7 @@ func TestTheBoardStationIsMarkedOnlyAtItsOwnTime(t *testing.T) {
 }
 
 func TestARouteWithoutTwoStopsDrawsNothing(t *testing.T) {
-	if lines, legend := RouteStops(route(runCall("Gent-Sint-Pieters", "17:00", false, false)), JourneyOptions{Width: 80, Location: brussels}, Mark{}); lines != nil || legend != nil {
-		t.Errorf("got %q and %q", lines, legend)
+	if lines, legend := RouteStops(route(runCall("Gent-Sint-Pieters", "17:00", false, false)), JourneyOptions{Width: 80, Location: brussels}, Mark{}); lines != nil || legend.Lines(80) != nil {
+		t.Errorf("got %q and %q", lines, legend.Lines(80))
 	}
 }

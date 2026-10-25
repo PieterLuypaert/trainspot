@@ -196,6 +196,27 @@ func (k *marks) note(n *note) {
 	k.notes = addNote(k.notes, n)
 }
 
+// Legend explains the marks on what was drawn. The legends of parts drawn
+// side by side join into one, each mark explained once.
+type Legend struct{ notes []note }
+
+func (l Legend) With(other Legend) Legend {
+	notes := slices.Clone(l.notes)
+	for _, n := range other.notes {
+		notes = addNote(notes, &n)
+	}
+	return Legend{notes}
+}
+
+// Lines lays the legend out for the width, each line indented.
+func (l Legend) Lines(width int) []string {
+	var lines []string
+	for _, line := range legend(noteTexts(slices.Clone(l.notes)), width) {
+		lines = append(lines, clip(indent+line, width))
+	}
+	return lines
+}
+
 func noteTexts(notes []note) []string {
 	slices.SortFunc(notes, func(a, b note) int { return a.kind - b.kind })
 	var texts []string

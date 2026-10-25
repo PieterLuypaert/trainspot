@@ -57,9 +57,11 @@ type JourneyLines struct {
 	Stops [][]string
 	// Legend explains the marks of all summaries and stops, and Legends[i]
 	// those of the summaries and journey i's stops, for a caller that
-	// shows the stops of one journey only.
-	Legend  []string
-	Legends [][]string
+	// shows the stops of one journey only. SummaryLegend explains the
+	// summaries alone, to join with the legend of what is drawn beside.
+	Legend        []string
+	Legends       [][]string
+	SummaryLegend Legend
 }
 
 func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
@@ -72,6 +74,7 @@ func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 		summaries = append(summaries, v.summary(j, changes[i]))
 	}
 	summaryNotes, all := v.notes, slices.Clone(v.notes)
+	l.SummaryLegend = Legend{slices.Clone(summaryNotes)}
 	for i, j := range list {
 		v.notes = slices.Clone(summaryNotes)
 		var stops []string

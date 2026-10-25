@@ -365,7 +365,7 @@ func (m Model) stopsBody(width int) (main, tail []string) {
 	case m.left != nil:
 		source = indent + faint.Render("Following the train live, updated "+m.leftAt.In(m.cfg.Location).Format("15:04"))
 	}
-	tail = append(append([]string{""}, legend...), m.status(source))
+	tail = append(append([]string{""}, legend.Lines(width)...), m.status(source))
 	return append([]string{"", indent + board.JourneySummary(journey), ""}, lines...), tail
 }
 
@@ -390,7 +390,7 @@ func (m Model) routeBody(width int) (main, tail []string) {
 	}
 	mark := board.Mark{Station: m.boardStation(), At: m.routeOf.Scheduled}
 	lines, legend := board.RouteStops(m.route, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}, mark)
-	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.route.Updated, m.cfg.Location)))
+	tail = append(append([]string{""}, legend.Lines(width)...), m.status(board.Footer(m.route.Updated, m.cfg.Location)))
 	return append([]string{"", indent + board.RouteSummary(m.route), ""}, lines...), tail
 }
 

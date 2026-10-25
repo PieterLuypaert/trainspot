@@ -30,8 +30,9 @@ const (
 
 // JourneyStops draws every stop of one journey down a route line, with the
 // legend for what it shows. Stations the train has passed are dimmed.
-func JourneyStops(j irail.Journey, o JourneyOptions) (lines, legendLines []string) {
+func JourneyStops(j irail.Journey, o JourneyOptions) ([]string, Legend) {
 	r := newRouteLine(j.Legs, o, Mark{})
+	var lines []string
 	changes := j.Changes()
 	rode := false
 	for i, leg := range j.Legs {
@@ -48,7 +49,7 @@ func JourneyStops(j irail.Journey, o JourneyOptions) (lines, legendLines []strin
 			rode = true
 		}
 	}
-	return clipAll(lines, o.Width), r.legend()
+	return clipAll(lines, o.Width), Legend{r.notes}
 }
 
 // Mark is a station on a train's run to draw like a leg's end, such as the
@@ -65,13 +66,13 @@ func (k Mark) is(c irail.Call) bool {
 
 // RouteStops draws every stop of a train's run down a route line, with the
 // legend. A caller names the train itself.
-func RouteStops(rt irail.Route, o JourneyOptions, mark Mark) (lines, legendLines []string) {
+func RouteStops(rt irail.Route, o JourneyOptions, mark Mark) ([]string, Legend) {
 	if len(rt.Stops) < 2 {
-		return nil, nil
+		return nil, Legend{}
 	}
 	leg := rt.Leg()
 	r := newRouteLine([]irail.Leg{leg}, o, mark)
-	return clipAll(r.leg(leg), o.Width), r.legend()
+	return clipAll(r.leg(leg), o.Width), Legend{r.notes}
 }
 
 // JourneySummary says how long a journey takes, how often you change, and
@@ -335,14 +336,6 @@ func (r *routeLine) spread(left, right string) string {
 		return left
 	}
 	return left + strings.Repeat(" ", space) + right
-}
-
-func (r *routeLine) legend() []string {
-	var lines []string
-	for _, line := range legend(noteTexts(slices.Clone(r.notes)), r.o.Width) {
-		lines = append(lines, clip(indent+line, r.o.Width))
-	}
-	return lines
 }
 
 const hereLabel = "train is here"
