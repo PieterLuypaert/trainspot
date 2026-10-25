@@ -37,19 +37,20 @@ type Call struct {
 	// EndsHere says the train now ends here: it still arrives, so you can
 	// get off, but goes no further.
 	EndsHere bool
-	// Passed says the train has left here.
-	Passed bool
+	// Passed says the train has left here, Arrived that it has reached it.
+	Passed, Arrived bool
 	// Extra is a stop the timetable did not plan.
 	Extra bool
 }
 
 // Leg is one train ride, or a walk between two stations, within a journey.
 type Leg struct {
-	// Train is empty for a walk.
-	Train     string
-	Direction string
-	Walking   bool
-	Departure Stop
+	// Train is empty for a walk, and Vehicle is the train's iRail id, such
+	// as BE.NMBS.IC2117.
+	Train, Vehicle string
+	Direction      string
+	Walking        bool
+	Departure      Stop
 	// Calls are the stations the train stops at on the way, in order.
 	Calls   []Call
 	Arrival Stop
@@ -113,6 +114,7 @@ type callJSON struct {
 	ArrivalCanceled        flag   `json:"arrivalCanceled"`
 	DepartureCanceled      flag   `json:"departureCanceled"`
 	Left                   flag   `json:"left"`
+	Arrived                flag   `json:"arrived"`
 	IsExtraStop            flag   `json:"isExtraStop"`
 	Platform               string `json:"platform"`
 	PlatformInfo           struct {
@@ -133,6 +135,7 @@ func (c callJSON) call() Call {
 		Cancelled:       bool(c.ArrivalCanceled) && bool(c.DepartureCanceled),
 		EndsHere:        bool(c.DepartureCanceled) && !bool(c.ArrivalCanceled),
 		Passed:          bool(c.Left),
+		Arrived:         bool(c.Arrived),
 		Extra:           bool(c.IsExtraStop),
 	}
 }
@@ -177,7 +180,7 @@ func (c connectionJSON) journey() Journey {
 	for i, dep := range departures {
 		leg := Leg{Walking: bool(dep.Walking), Departure: dep.stop(), Arrival: arrivals[i].stop()}
 		if !leg.Walking {
-			leg.Train = trainName(dep.VehicleInfo.ShortName, dep.Vehicle)
+			leg.Train, leg.Vehicle = trainName(dep.VehicleInfo.ShortName, dep.Vehicle), dep.Vehicle
 			leg.Direction = dep.Direction.Name
 		}
 		for _, c := range dep.Stops.Stop {
