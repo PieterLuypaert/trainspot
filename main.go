@@ -223,6 +223,9 @@ func (a app) run(ctx context.Context, o options) int {
 	if err != nil {
 		return a.fail(err)
 	}
+	if err := checkNames(dir, o.lang, o.query, o.to); err != nil {
+		return a.fail(err)
+	}
 	from, err := a.chooseStation(dir, o.query, o.lang)
 	if err != nil {
 		return a.fail(err)

@@ -34,6 +34,20 @@ func (a app) chooseStation(dir *stations.Directory, query, lang string) (station
 	return a.ask(query, matches, lang)
 }
 
+// checkNames reports a name that fits no station at all before the picker
+// asks about another one.
+func checkNames(dir *stations.Directory, lang string, queries ...string) error {
+	for _, query := range queries {
+		if query == "" {
+			continue
+		}
+		if matches, _ := dir.Lookup(query, lang); len(matches) == 0 {
+			return noMatch(dir, query, lang)
+		}
+	}
+	return nil
+}
+
 func noMatch(dir *stations.Directory, query, lang string) error {
 	message := fmt.Sprintf("no station is called %q", query)
 	if suggestions := dir.Suggest(query, lang, 3); len(suggestions) > 0 {

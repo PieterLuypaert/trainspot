@@ -137,6 +137,14 @@ func TestAsksForBothStationsInTurn(t *testing.T) {
 	}
 }
 
+func TestReportsAnUnknownDestinationBeforeAsking(t *testing.T) {
+	r := runWith(t, []string{"gent", "--to", "brugeee"}, "1\n", true, &fakeIRail{})
+
+	if r.code != 2 || !strings.Contains(r.err, `no station is called "brugeee"`) || strings.Contains(r.err, "Which one?") {
+		t.Errorf("code %d, err:\n%s", r.code, r.err)
+	}
+}
+
 func TestRefusesAJourneyToTheSameStation(t *testing.T) {
 	r := runWith(t, []string{"bergen", "--to", "mons"}, "", true, &fakeIRail{})
 
