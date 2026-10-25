@@ -973,22 +973,22 @@ func TestTheRecentTripsMakeWayForSuggestions(t *testing.T) {
 	h.wantOnScreen("Recent trips", "1  Gent-Sint-Pieters → Aarlen")
 }
 
-func TestANarrowFormLeavesOutNotesItCannotShow(t *testing.T) {
+func TestALongNameGoesWithoutNotesInANarrowForm(t *testing.T) {
 	h := newHarness(t, "", "")
 	h.m.cfg.Stations = stations.NewDirectory([]stations.Station{
 		{ID: brusselID, Names: map[string]string{"nl": "Brussel-Zuid", "fr": "Bruxelles-Midi"}, Standard: "Brussel-Zuid/Bruxelles-Midi"},
-		{ID: "BE.NMBS.008819406", Names: map[string]string{"nl": "Brussels Airport - Zaventem", "fr": "Bruxelles-Aéroport - Zaventem"}, Standard: "Brussels Airport - Zaventem"},
+		{ID: "BE.NMBS.008819406", Names: map[string]string{"nl": "Brussels Airport - Zaventem", "fr": "Bruxelles-Aéroport - Zaventem"}, Standard: "Brussels Airport - Zaventem/Bruxelles-Aéroport - Zaventem"},
 	})
 	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
 
 	h.typeText("bru")
 
-	h.wantOnScreen("Brussel-Zuid", "Brussels Airport - Zaventem")
-	if strings.Contains(h.screen(), "Br…") || strings.Contains(h.screen(), "Bruxelles") {
-		t.Errorf("local names show in a form too narrow for them:\n%s", h.screen())
+	h.wantOnScreen("Brussel-Zuid", "Bruxelles-Midi", "Brussels Airport - Zaventem")
+	if strings.Contains(h.screen(), "Br…") || strings.Contains(h.screen(), "Bruxelles-Aéroport") {
+		t.Errorf("a name too long for its notes shows a stub of them:\n%s", h.screen())
 	}
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
-	h.wantOnScreen("Bruxelles-Midi")
+	h.wantOnScreen("Bruxelles-Aéroport - Zaventem")
 }
 
 func numberedBrusselStations(n int) *stations.Directory {

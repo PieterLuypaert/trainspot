@@ -198,14 +198,17 @@ func (m Model) suggestionLines(width int) []string {
 		lines = append(lines, pad+faint.Render(fmt.Sprintf("no station is called %q; did you mean:", query)))
 	}
 	shown := list[:m.shownSuggestions()]
+	// The local names and "abroad" line up after the names that leave them
+	// room; a longer name goes without them rather than show a stub.
+	noteRoom := width - len(pad) - 2 - 2 - minNotesWidth
 	nameWidth := 0
 	for _, s := range shown {
-		nameWidth = max(nameWidth, lipgloss.Width(s.Name(m.cfg.Lang)))
+		if w := lipgloss.Width(s.Name(m.cfg.Lang)); w <= noteRoom {
+			nameWidth = max(nameWidth, w)
+		}
 	}
-	// The local names and "abroad" go when only a stub of them would fit.
-	withNotes := width-len(pad)-2-nameWidth-2 >= minNotesWidth
 	for i, s := range shown {
-		lines = append(lines, ansi.Truncate(pad+m.suggestion(s, i == m.choice, nameWidth, withNotes), width, "…"))
+		lines = append(lines, ansi.Truncate(pad+m.suggestion(s, i == m.choice, nameWidth), width, "…"))
 	}
 	if more := len(list) - len(shown); more > 0 {
 		lines = append(lines, pad+faint.Render(fmt.Sprintf("… %d more; type more of the name", more)))
@@ -238,9 +241,12 @@ func (m Model) shownSuggestions() int {
 // minNotesWidth is the least room a suggestion's notes get.
 const minNotesWidth = 8
 
-func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int, withNotes bool) string {
+// suggestion is a station to pick, with its notes after the name column
+// nameWidth when its name fits that column.
+func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string {
 	name := s.Name(m.cfg.Lang)
-	name += strings.Repeat(" ", nameWidth-lipgloss.Width(name))
+	withNotes := lipgloss.Width(name) <= nameWidth
+	name += strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name)))
 	marker := "  "
 	if chosen {
 		marker, name = bold.Render("▸ "), bold.Render(name)
