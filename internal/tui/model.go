@@ -209,6 +209,8 @@ func (m *Model) keepInView() {
 		m.scroll = min(m.scroll, m.maxScroll())
 	case departures:
 		m.showBoardChoice()
+	case planning:
+		m.choice = max(0, min(m.choice, m.shownSuggestions()-1))
 	}
 }
 

@@ -118,17 +118,27 @@ func (m Model) departuresTitle() string {
 // departures from the station in the From field. The departures take the
 // larger part, so the board keeps its columns.
 func (m Model) planningBody(width, room int) []string {
-	if width < twoPanesWidth {
-		form := append(m.formLines(width), m.recentLines()...)
+	left := formWidth(width)
+	form := append(m.formLines(left), m.recentLines(left)...)
+	if left == width {
 		return append(form, m.planningSide(width, room-len(form))...)
 	}
-	formWidth := max(minFormWidth, width*2/5)
-	form := append(m.formLines(formWidth), m.recentLines()...)
-	return sideBySide(form, m.planningSide(width-formWidth-lipgloss.Width(divider), room), formWidth)
+	return sideBySide(form, m.planningSide(width-left-lipgloss.Width(divider), room), left)
 }
 
-// minFormWidth is the narrowest the form gets beside the departures.
-const minFormWidth = 40
+// formWidth is how wide the form is: all of width in a narrow window, two
+// fifths of it beside the departures in a wide one.
+func formWidth(width int) int {
+	if width < twoPanesWidth {
+		return width
+	}
+	return width * 2 / 5
+}
+
+// narrowSideRows are the rows the departures under a narrow form keep
+// while it suggests stations: enough for the title, the column titles,
+// two departures, the legend and the status line.
+const narrowSideRows = 9
 
 func (m Model) formLines(width int) []string {
 	body := []string{""}
@@ -203,12 +213,16 @@ func (m Model) suggestionLines(width int) []string {
 	return lines
 }
 
-// shownSuggestions is how many suggestions the form shows: all that fit
-// beside the fields and the recent trips, and at least minSuggestions.
+// shownSuggestions is how many suggestions the form shows: all that fit,
+// and at least minSuggestions. The recent trips make way while the form
+// suggests, and the departures under a narrow form keep narrowSideRows.
 func (m Model) shownSuggestions() int {
-	_, room := m.inside()
+	width, room := m.inside()
 	// The blank line over the fields and the two fields take three rows.
-	space := room - 3 - len(m.recentLines())
+	space := room - 3
+	if formWidth(width) == width {
+		space -= narrowSideRows
+	}
 	if len(m.suggested) <= space {
 		return len(m.suggested)
 	}

@@ -917,6 +917,50 @@ func TestTheFormSuggestsEveryStationThatFits(t *testing.T) {
 	}
 }
 
+func TestAShrunkWindowKeepsTheChosenSuggestionInView(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = manyBrusselStations()
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 40})
+	h.typeText("brus")
+	for range 7 {
+		h.press(down)
+	}
+
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	h.wantOnScreen("▸ Brussel-Schuman")
+	h.press(enter)
+	h.wantOnScreen("From  Brussel-Schuman")
+}
+
+func TestTheDeparturesUnderANarrowFormStayWhileItSuggests(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	h.press(letter('e'), tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	var list []stations.Station
+	for i := range 25 {
+		list = append(list, stations.Station{ID: fmt.Sprintf("BE.NMBS.0088200%02d", i), Names: map[string]string{"nl": fmt.Sprintf("Brussel-%02d", i)}, Standard: fmt.Sprintf("Brussel-%02d", i)})
+	}
+	h.m.cfg.Stations = stations.NewDirectory(list)
+
+	h.typeText("brus")
+
+	h.wantOnScreen("more; type more of the name", "Next from Gent-Sint-Pieters", "IC 535", "Live NMBS data via iRail")
+}
+
+func TestTheRecentTripsMakeWayForSuggestions(t *testing.T) {
+	h := twoRecentTrips(t)
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+
+	h.typeText("gen")
+	if strings.Contains(h.screen(), "Recent trips") {
+		t.Errorf("the recent trips show while numbers would be typed:\n%s", h.screen())
+	}
+
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.wantOnScreen("Recent trips", "1  Gent-Sint-Pieters → Aarlen")
+}
+
 func TestANarrowFormLeavesOutNotesItCannotShow(t *testing.T) {
 	h := newHarness(t, "", "")
 	h.m.cfg.Stations = stations.NewDirectory([]stations.Station{

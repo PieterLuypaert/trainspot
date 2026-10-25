@@ -93,9 +93,11 @@ func (m Model) previewFailed() bool {
 	return m.previewErr != nil && !m.loading() && m.fields[0].station != nil && m.fields[0].station.ID == m.previewAsked
 }
 
-// recentLines list the recent trips under the form, numbered to pick.
-func (m Model) recentLines() []string {
-	if len(m.picks) == 0 {
+// recentLines list the recent trips under the form, numbered to pick,
+// while a number picks one; as the user types a name, the suggestions
+// take their place.
+func (m Model) recentLines(width int) []string {
+	if !m.picksByNumber() {
 		return nil
 	}
 	lines := []string{"", indent + bold.Render("Recent trips")}
