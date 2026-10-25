@@ -29,7 +29,11 @@ const (
 )
 
 // key is a key and what it does, for the hints on the frame's bottom edge.
-type key struct{ name, does string }
+// Optional keys make way first on a narrow terminal.
+type key struct {
+	name, does string
+	optional   bool
+}
 
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
@@ -38,12 +42,16 @@ func (m Model) View() tea.View {
 	return v
 }
 
-func (m Model) render() string {
-	width, height := m.width, m.height
+func (m Model) size() (width, height int) {
+	width, height = m.width, m.height
 	if width == 0 || height == 0 {
 		width, height = defaultWidth, defaultHeight
 	}
-	width, height = max(width, minWidth), max(height, minHeight)
+	return max(width, minWidth), max(height, minHeight)
+}
+
+func (m Model) render() string {
+	width, height := m.size()
 	inner, room := width-4, height-2
 	clock := faint.Render(m.cfg.Now().In(m.cfg.Location).Format("Mon 2 Jan 15:04"))
 	switch m.screen {
@@ -53,6 +61,9 @@ func (m Model) render() string {
 	case departures:
 		main, tail := m.departuresBody(inner)
 		return frame(m.departuresTitle(), clock, fitBody(main, tail, room), departureKeys, width, height)
+	case stops:
+		main, tail := m.stopsBody(inner)
+		return frame(m.stopsTitle(), clock, scrollBody(main, tail, room, m.scroll), stopKeys, width, height)
 	}
 	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
 }
@@ -69,16 +80,18 @@ func fitBody(main, tail []string, room int) []string {
 }
 
 var (
-	journeyKeys   = []key{{"↑↓", "choose"}, {"d", "departures"}, {"e", "edit"}, {"s", "swap"}, {"r", "refresh"}, {"q", "quit"}}
-	departureKeys = []key{{"esc", "journeys"}, {"e", "edit"}, {"r", "refresh"}, {"q", "quit"}}
+	journeyKeys = []key{{"↑↓", "choose", false}, {"enter", "stops", false}, {"d", "departures", false}, {"e", "edit", false},
+		{"s", "swap", false}, {"r", "refresh", true}, {"q", "quit", false}}
+	departureKeys = []key{{"esc", "journeys", false}, {"e", "edit", false}, {"r", "refresh", true}, {"q", "quit", false}}
+	stopKeys      = []key{{"↑↓", "scroll", false}, {"esc", "journeys", false}, {"r", "refresh", true}, {"q", "quit", false}}
 )
 
 func (m Model) planningKeys() []key {
-	back := key{"esc", "quit"}
+	back := key{"esc", "quit", false}
 	if m.hasTrip() {
-		back = key{"esc", "back"}
+		back = key{"esc", "back", false}
 	}
-	return []key{{"tab", "next field"}, {"↑↓", "choose"}, {"enter", "search"}, back}
+	return []key{{"tab", "next field", false}, {"↑↓", "choose", false}, {"enter", "search", false}, back}
 }
 
 func (m Model) tripTitle() string {
@@ -255,10 +268,71 @@ func topEdge(title, clock string, width int) string {
 }
 
 func bottomEdge(keys []key, width int) string {
+	text := hintText(keys)
+	for i := len(keys) - 1; i >= 0 && lipgloss.Width(text) > width-6; i-- {
+		if keys[i].optional {
+			keys = append(keys[:i:i], keys[i+1:]...)
+			text = hintText(keys)
+		}
+	}
+	text = ansi.Truncate(text, width-6, "…")
+	return border.Render("╰─ ") + text + border.Render(" "+strings.Repeat("─", max(0, width-6-lipgloss.Width(text)))+"─╯")
+}
+
+func hintText(keys []key) string {
 	var hints []string
 	for _, k := range keys {
 		hints = append(hints, bold.Render(k.name)+" "+faint.Render(k.does))
 	}
-	text := ansi.Truncate(strings.Join(hints, faint.Render(" · ")), width-6, "…")
-	return border.Render("╰─ ") + text + border.Render(" "+strings.Repeat("─", max(0, width-6-lipgloss.Width(text)))+"─╯")
+	return strings.Join(hints, faint.Render(" · "))
+}
+
+func (m Model) stopsTitle() string {
+	j := m.trip.Journeys[m.selected]
+	times := bold.Render(j.Departure().Scheduled.In(m.cfg.Location).Format("15:04")) + " → " +
+		bold.Render(j.Arrival().Scheduled.In(m.cfg.Location).Format("15:04"))
+	return times + faint.Render(" · ") + m.tripTitle()
+}
+
+// stopsBody returns every stop of the chosen journey, and the legend and
+// status line that must stay in view.
+func (m Model) stopsBody(width int) (main, tail []string) {
+	lines, legend := board.JourneyStops(m.trip.Journeys[m.selected], board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
+	return append([]string{""}, lines...), tail
+}
+
+// scrollBody shows the part of main that scroll points at, keeping the
+// tail in view, with a line that says how much lies above and below.
+func scrollBody(main, tail []string, room, scroll int) []string {
+	space := room - len(tail)
+	if len(main) <= space {
+		return append(main, tail...)
+	}
+	shown := max(1, space-1)
+	scroll = max(0, min(scroll, len(main)-shown))
+	view := append([]string{}, main[scroll:scroll+shown]...)
+	var where []string
+	if scroll > 0 {
+		where = append(where, fmt.Sprintf("↑ %d more", scroll))
+	}
+	if below := len(main) - scroll - shown; below > 0 {
+		where = append(where, fmt.Sprintf("↓ %d more", below))
+	}
+	view = append(view, indent+faint.Render(strings.Join(where, "  ")))
+	return append(view, tail...)
+}
+
+// maxScroll is how far the stops can scroll in the current window.
+func (m Model) maxScroll() int {
+	width, height := m.size()
+	main, tail := m.stopsBody(width - 4)
+	shown := max(1, height-2-len(tail)-1)
+	return max(0, len(main)-shown)
+}
+
+// page is how many lines a page up or down moves.
+func (m Model) page() int {
+	_, height := m.size()
+	return max(1, height-10)
 }

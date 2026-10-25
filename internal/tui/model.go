@@ -43,6 +43,8 @@ const (
 	planning screen = iota
 	journeys
 	departures
+	// stops shows every stop of the chosen journey.
+	stops
 )
 
 const (
@@ -72,6 +74,9 @@ type Model struct {
 	// were fetched, so that switching screens reuses them while fresh.
 	tripAt, boardAt time.Time
 	selected        int
+	// scroll is how many lines of the chosen journey's stops are scrolled
+	// past.
+	scroll int
 
 	// waiting is the id of the fetch the screen waits for, or 0. An answer
 	// to any other fetch, such as one for a screen the user has left, is
@@ -169,6 +174,8 @@ func (m Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.planningKey(k)
 	case journeys:
 		return m.journeysKey(k)
+	case stops:
+		return m.stopsKey(k)
 	}
 	return m.departuresKey(k)
 }
@@ -182,7 +189,7 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	}
 	var fetch tea.Cmd
 	switch m.screen {
-	case journeys:
+	case journeys, stops:
 		fetch = m.fetchTrip()
 	case departures:
 		fetch = m.fetchBoard()
@@ -340,6 +347,30 @@ func (m Model) journeysKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toPlanning()
 	case "d":
 		return m.toDepartures()
+	case "enter", "right", "l":
+		if len(m.trip.Journeys) > 0 {
+			m.screen, m.scroll, m.note = stops, 0, ""
+		}
+	case "r":
+		return m.fetchAgain()
+	}
+	return m, nil
+}
+
+func (m Model) stopsKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "q":
+		return m, tea.Quit
+	case "esc", "left", "h", "backspace":
+		m.screen = journeys
+	case "up", "k":
+		m.scroll = max(0, m.scroll-1)
+	case "down", "j":
+		m.scroll = min(m.maxScroll(), m.scroll+1)
+	case "pgup":
+		m.scroll = max(0, m.scroll-m.page())
+	case "pgdown", "space":
+		m.scroll = min(m.maxScroll(), m.scroll+m.page())
 	case "r":
 		return m.fetchAgain()
 	}
@@ -404,26 +435,31 @@ func (m *Model) gotTrip(msg tripMsg) {
 		return
 	}
 	m.waiting, m.err = 0, msg.err
-	if msg.err == nil {
-		m.keepChoice(msg.trip)
-		m.trip, m.tripAt = msg.trip, m.cfg.Now()
+	if msg.err != nil {
+		return
 	}
+	if !m.keepChoice(msg.trip) && m.screen == stops {
+		m.screen, m.note = journeys, "That journey is no longer listed; its train may have left."
+	}
+	m.trip, m.tripAt = msg.trip, m.cfg.Now()
 }
 
 // keepChoice finds the chosen journey in a refreshed list, by when it
 // leaves and on which train, so the choice does not jump to another train
-// when an earlier one has left. When it is gone, the choice keeps its row.
-func (m *Model) keepChoice(next irail.Trip) {
+// when an earlier one has left. When it is gone, the choice keeps its row
+// and keepChoice reports false.
+func (m *Model) keepChoice(next irail.Trip) bool {
 	if m.selected < len(m.trip.Journeys) {
 		chosen := journeyKey(m.trip.Journeys[m.selected])
 		for i, j := range next.Journeys {
 			if journeyKey(j) == chosen {
 				m.selected = i
-				return
+				return true
 			}
 		}
 	}
 	m.selected = max(0, min(m.selected, len(next.Journeys)-1))
+	return len(m.trip.Journeys) == 0
 }
 
 func journeyKey(j irail.Journey) string {

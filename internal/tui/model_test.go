@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -42,11 +43,22 @@ func stop(station, hhmm, platform string) irail.Stop {
 	return irail.Stop{Station: station, Scheduled: at(hhmm), Platform: platform}
 }
 
+func calls(from string, stations ...string) []irail.Call {
+	var list []irail.Call
+	for i, s := range stations {
+		list = append(list, irail.Call{Station: s, Departure: at(from).Add(time.Duration(i*10) * time.Minute)})
+	}
+	return list
+}
+
 func sampleTrip() irail.Trip {
 	return irail.Trip{Updated: at("16:36"), Journeys: []irail.Journey{
 		{Legs: []irail.Leg{
-			{Train: "IC 3615", Direction: "Leuven", Departure: stop("Gent-Sint-Pieters", "17:13", "9"), Arrival: stop("Brussel-Zuid", "18:07", "14")},
-			{Train: "IC 2118", Direction: "Aarlen", Departure: stop("Brussel-Zuid", "18:13", "15"), Arrival: stop("Aarlen", "21:22", "2")},
+			{Train: "IC 3615", Direction: "Leuven", Departure: stop("Gent-Sint-Pieters", "17:13", "9"),
+				Calls: calls("17:20", "Wetteren", "Aalst", "Denderleeuw"), Arrival: stop("Brussel-Zuid", "18:07", "14")},
+			{Train: "IC 2118", Direction: "Aarlen", Departure: stop("Brussel-Zuid", "18:13", "15"),
+				Calls:   calls("18:20", "Brussel-Centraal", "Brussel-Noord", "Leuven", "Ottignies", "Gembloux", "Namen", "Ciney", "Marloie", "Libramont", "Marbehan"),
+				Arrival: stop("Aarlen", "21:22", "2")},
 		}},
 		{Legs: []irail.Leg{
 			{Train: "IC 2114", Direction: "Luxemburg", Departure: stop("Gent-Sint-Pieters", "18:46", "10"), Arrival: stop("Aarlen", "22:10", "2")},
@@ -455,6 +467,69 @@ func TestSaysWhenTheTripCannotBeRemembered(t *testing.T) {
 	h.press(enter)
 
 	h.wantOnScreen("▸ 17:13 → 21:22", "could not remember this trip for next time: disk full")
+}
+
+func TestShowsEveryStopOfTheChosenJourney(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+
+	h.press(enter)
+
+	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "IC 3615 to Leuven", "· Wetteren", "· Denderleeuw",
+		"change 6 min", "IC 2118 to Aarlen", "· Marbehan", "21:22  Aarlen", "esc journeys")
+	h.press(esc)
+	h.wantOnScreen("▸ 17:13 → 21:22")
+}
+
+func TestScrollsThroughALongListOfStops(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 14})
+	h.press(enter)
+	moreBelow := regexp.MustCompile(`↓ \d+ more`)
+	if !moreBelow.MatchString(h.screen()) {
+		t.Errorf("a long list does not say there is more below:\n%s", h.screen())
+	}
+	h.wantOnScreen("· Wetteren")
+
+	h.press(down, down, down)
+	h.wantOnScreen("↑ 3 more")
+	if strings.Contains(h.screen(), "IC 3615 to Leuven") {
+		t.Errorf("scrolling down kept the first lines:\n%s", h.screen())
+	}
+
+	for range 40 {
+		h.press(down)
+	}
+	h.wantOnScreen("21:22  Aarlen", "Live NMBS data via iRail, updated 16:36")
+	if moreBelow.MatchString(h.screen()) {
+		t.Errorf("at the end of the list it still says there is more:\n%s", h.screen())
+	}
+}
+
+func TestGoesBackWhenTheChosenJourneyLeaves(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(enter)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	h.wantOnScreen("▸ 18:46 → 22:10", "That journey is no longer listed")
+}
+
+func TestKeyHintsMakeWayOnANarrowTerminal(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	lastLine := func() string {
+		lines := strings.Split(h.screen(), "\n")
+		return lines[len(lines)-1]
+	}
+
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	if bottom := lastLine(); !strings.Contains(bottom, "enter stops") || !strings.Contains(bottom, "q quit") || strings.Contains(bottom, "refresh") {
+		t.Errorf("80 columns: %q", bottom)
+	}
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 24})
+	if bottom := lastLine(); !strings.Contains(bottom, "r refresh") {
+		t.Errorf("120 columns: %q", bottom)
+	}
 }
 
 func TestQuits(t *testing.T) {
