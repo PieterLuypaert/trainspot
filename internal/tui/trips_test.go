@@ -60,3 +60,18 @@ func TestWithPutsATripFirstOnceAndKeepsFive(t *testing.T) {
 		t.Errorf("trips = %+v, want %+v", trips, want)
 	}
 }
+
+func TestSavedTripsReadBackOnceEachAndAtMostFive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trip.json")
+	trip := func(n int) Trip { return Trip{From: string(rune('a' + n)), To: "z"} }
+	saved := Trips{trip(0), trip(1), trip(0), trip(2), trip(3), trip(4), trip(5), trip(6)}
+	if err := SaveTrips(path, saved); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadTrips(path)
+
+	if want := (Trips{trip(0), trip(1), trip(2), trip(3), trip(4)}); err != nil || !slices.Equal(got, want) {
+		t.Errorf("got %+v, %v; want %+v", got, err, want)
+	}
+}

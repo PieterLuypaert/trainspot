@@ -85,12 +85,12 @@ func (m Model) planningKeys() []key {
 		back = key{name: "esc", does: "back"}
 	}
 	keys := []key{{name: "tab", does: "next field"}, {name: "↑↓", does: "choose"}, {name: "enter", does: "search"}}
-	switch n := len(m.recentTrips()); n {
-	case 0:
-	case 1:
-		keys = append(keys, key{name: "1", does: "recent trip"})
-	default:
-		keys = append(keys, key{name: fmt.Sprintf("1-%d", n), does: "recent trip"})
+	if m.picksByNumber() {
+		numbers := "1"
+		if n := len(m.picks); n > 1 {
+			numbers = fmt.Sprintf("1-%d", n)
+		}
+		keys = append(keys, key{name: numbers, does: "recent trip", optional: true})
 	}
 	return append(keys, back)
 }

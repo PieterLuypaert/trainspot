@@ -106,8 +106,11 @@ type Model struct {
 	note string
 	// first is the fetch of the trip the screen opens on. New prepares it,
 	// since Init cannot keep the id it would start.
-	first  tea.Cmd
+	first tea.Cmd
+	// recent are the recent trips as saved, and picks those the form lists
+	// to pick, with their stations.
 	recent Trips
+	picks  []recentTrip
 	// preview is the board of the station in the From field, shown beside
 	// the form, for the station previewID; previewAt is when it came.
 	preview   irail.Liveboard
@@ -136,7 +139,8 @@ type previewMsg struct {
 }
 
 func New(cfg Config) Model {
-	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}, recent: cfg.Recent}
+	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}}
+	m.setRecent(cfg.Recent)
 	if len(cfg.Recent) == 0 {
 		return m
 	}
@@ -361,7 +365,7 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 func (m Model) startTrip(from, to stations.Station) (tea.Model, tea.Cmd) {
 	m.setTrip(from, to)
 	m.screen = journeys
-	m.recent = m.recent.With(Trip{From: from.ID, To: to.ID})
+	m.setRecent(m.recent.With(Trip{From: from.ID, To: to.ID}))
 	if m.cfg.Remember != nil {
 		if err := m.cfg.Remember(m.recent); err != nil {
 			m.note = "could not remember this trip for next time: " + err.Error()

@@ -37,7 +37,8 @@ type tripsFile struct {
 }
 
 // LoadTrips reads the trips saved at path, none when nothing was saved
-// yet; a file from before, with one trip, reads as that trip.
+// yet; a file from before, with one trip, reads as that trip. Like With,
+// it keeps each trip once and the most recent keptTrips.
 func LoadTrips(path string) (Trips, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -50,10 +51,15 @@ func LoadTrips(path string) (Trips, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("%s is damaged: %w", path, err)
 	}
-	if len(f.Recent) == 0 && f.From != "" && f.To != "" {
-		return Trips{f.Trip}, nil
+	saved := f.Recent
+	if len(saved) == 0 && f.From != "" && f.To != "" {
+		saved = Trips{f.Trip}
 	}
-	return f.Recent, nil
+	var trips Trips
+	for _, t := range slices.Backward(saved) {
+		trips = trips.With(t)
+	}
+	return trips, nil
 }
 
 func SaveTrips(path string, t Trips) error {

@@ -7,50 +7,51 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/PieterLuypaert/trainspot/internal/board"
+	"github.com/PieterLuypaert/trainspot/internal/stations"
 )
 
 // Beside the form go the recent trips, each picked with its number, and
 // the next departures from the station in the From field.
 
-// recentKey reads a key as the number of a recent trip. Numbers count as
-// trips only while the focused field holds no typed text, so a station
-// name with digits can still be typed.
-func (m Model) recentKey(text string) (int, bool) {
+// recentTrip is a recent trip with its stations found.
+type recentTrip struct{ from, to stations.Station }
+
+// setRecent puts the recent trips on hand, with the stations of those that
+// can be picked: both stations still known, and not one and the same.
+func (m *Model) setRecent(trips Trips) {
+	m.recent, m.picks = trips, nil
+	for _, t := range trips {
+		from, hasFrom := m.cfg.Stations.ByID(t.From)
+		to, hasTo := m.cfg.Stations.ByID(t.To)
+		if hasFrom && hasTo && from.ID != to.ID {
+			m.picks = append(m.picks, recentTrip{from: from, to: to})
+		}
+	}
+}
+
+// picksByNumber tells whether a number key picks a recent trip: only while
+// the focused field holds no typed text, so a station name with digits can
+// still be typed.
+func (m Model) picksByNumber() bool {
 	f := m.fields[m.focus]
-	if f.text != "" && f.station == nil {
+	return len(m.picks) > 0 && (f.text == "" || f.station != nil)
+}
+
+// recentKey reads a key as the number of a recent trip.
+func (m Model) recentKey(text string) (int, bool) {
+	if !m.picksByNumber() {
 		return 0, false
 	}
 	n, err := strconv.Atoi(text)
-	if err != nil || n < 1 || n > len(m.recentTrips()) {
+	if err != nil || n < 1 || n > len(m.picks) {
 		return 0, false
 	}
 	return n, true
 }
 
-// recentTrip is a recent trip with its stations found.
-type recentTrip struct {
-	from, to string
-	trip     Trip
-}
-
-// recentTrips are the recent trips whose stations are still known.
-func (m Model) recentTrips() []recentTrip {
-	var trips []recentTrip
-	for _, t := range m.recent {
-		from, hasFrom := m.cfg.Stations.ByID(t.From)
-		to, hasTo := m.cfg.Stations.ByID(t.To)
-		if hasFrom && hasTo {
-			trips = append(trips, recentTrip{from: from.Name(m.cfg.Lang), to: to.Name(m.cfg.Lang), trip: t})
-		}
-	}
-	return trips
-}
-
 func (m Model) pickRecent(n int) (tea.Model, tea.Cmd) {
-	t := m.recentTrips()[n-1].trip
-	from, _ := m.cfg.Stations.ByID(t.From)
-	to, _ := m.cfg.Stations.ByID(t.To)
-	return m.startTrip(from, to)
+	t := m.picks[n-1]
+	return m.startTrip(t.from, t.to)
 }
 
 // previewFrom fetches the board of the station in the From field, unless
@@ -87,10 +88,10 @@ func (m *Model) gotPreview(msg previewMsg) {
 // departures from the station in the From field, in at most rows lines.
 func (m Model) planningSide(width, rows int) []string {
 	lines := []string{""}
-	if trips := m.recentTrips(); len(trips) > 0 {
+	if len(m.picks) > 0 {
 		lines = append(lines, indent+bold.Render("Recent trips"))
-		for i, t := range trips {
-			lines = append(lines, indent+"  "+bold.Render(strconv.Itoa(i+1))+"  "+t.from+faint.Render(" → ")+t.to)
+		for i, t := range m.picks {
+			lines = append(lines, indent+"  "+bold.Render(strconv.Itoa(i+1))+"  "+t.from.Name(m.cfg.Lang)+faint.Render(" → ")+t.to.Name(m.cfg.Lang))
 		}
 		lines = append(lines, "")
 	}

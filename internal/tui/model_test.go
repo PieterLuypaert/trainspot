@@ -819,7 +819,7 @@ func TestATinyJourneysScreenKeepsItsStatusLine(t *testing.T) {
 
 func twoRecentTrips(t *testing.T) *harness {
 	h := newHarness(t, gentID, aarlenID)
-	h.m.recent = Trips{{From: gentID, To: aarlenID}, {From: brusselID, To: gentID}}
+	h.m.setRecent(Trips{{From: gentID, To: aarlenID}, {From: brusselID, To: gentID}})
 	h.press(letter('e'))
 	return h
 }
@@ -872,6 +872,34 @@ func TestAWideFormHasItsSidePaneBesideIt(t *testing.T) {
 		t.Errorf("the recent trips are not beside the form: %q", row)
 	}
 	h.wantOnScreen("Next from Gent-Sint-Pieters")
+}
+
+func TestTheRecentTripHintMakesWayAndHidesWhileTyping(t *testing.T) {
+	h := twoRecentTrips(t)
+
+	h.send(tea.WindowSizeMsg{Width: 64, Height: 30})
+	h.wantOnScreen("esc back")
+	if strings.Contains(h.screen(), "recent trip ") {
+		t.Errorf("the recent trip hint did not make way for esc:\n%s", h.screen())
+	}
+
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("gen")
+	if strings.Contains(h.screen(), "1-2 recent trip") {
+		t.Errorf("the hint offers numbers that would be typed:\n%s", h.screen())
+	}
+}
+
+func TestARecentTripFromAStationToItselfIsLeftOut(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.m.setRecent(Trips{{From: gentID, To: gentID}, {From: brusselID, To: gentID}})
+	h.press(letter('e'))
+
+	h.wantOnScreen("1  Brussel-Zuid → Gent-Sint-Pieters", "1 recent trip")
+	if strings.Contains(h.screen(), "Gent-Sint-Pieters → Gent-Sint-Pieters") {
+		t.Errorf("a trip from a station to itself is listed:\n%s", h.screen())
+	}
 }
 
 func TestQuits(t *testing.T) {
