@@ -74,6 +74,7 @@ type fakeSource struct {
 	firstGone bool
 	// departures is how many departures the board lists; one when zero.
 	departures int
+	routeErrs  map[string]error
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -105,8 +106,11 @@ func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Li
 
 // Route runs every train from Gent-Sint-Pieters by Wetteren and Aalst to
 // Brussel-Zuid, standing in Wetteren: past the first station, at the second.
-func (f *fakeSource) Route(_ context.Context, vehicleID string, _ time.Time, _ string) (irail.Route, error) {
+func (f *fakeSource) RouteThrough(_ context.Context, vehicleID, _ string, _ time.Time, _ string) (irail.Route, error) {
 	f.routes = append(f.routes, vehicleID)
+	if err := f.routeErrs[vehicleID]; err != nil {
+		return irail.Route{}, err
+	}
 	call := func(station, hhmm string, passed, arrived bool) irail.Call {
 		return irail.Call{Station: station, Arrival: at(hhmm), Departure: at(hhmm), Passed: passed, Arrived: arrived}
 	}
@@ -678,6 +682,28 @@ func TestFollowsAJourneyOnceItsTrainHasLeftTheList(t *testing.T) {
 		t.Errorf("routes asked for %v, want both trains of the journey", h.src.routes)
 	}
 	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "· Wetteren", "train is here", "Following the train live, updated 16:40")
+}
+
+func TestFollowsTheOtherTrainsWhenOneCannotBeFound(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.routeErrs = map[string]error{"BE.NMBS.IC2118": errors.New("not found")}
+	h.press(enter)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	h.wantOnScreen("train is here", "Following the train live, updated 16:40")
+}
+
+func TestSaysSoWhenNoTrainOfTheJourneyCanBeFollowed(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.routeErrs = map[string]error{"BE.NMBS.IC3615": errors.New("not found")}
+	h.press(enter)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	h.wantOnScreen("IC 3615 to Leuven", "could not refresh: not found")
 }
 
 func TestQuits(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 type Source interface {
 	Journeys(ctx context.Context, fromID, toID, lang string) (irail.Trip, error)
 	Liveboard(ctx context.Context, stationID, lang string) (irail.Liveboard, error)
-	Route(ctx context.Context, vehicleID string, day time.Time, lang string) (irail.Route, error)
+	RouteThrough(ctx context.Context, vehicleID, station string, at time.Time, lang string) (irail.Route, error)
 }
 
 type Config struct {

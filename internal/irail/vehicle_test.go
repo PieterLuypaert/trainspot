@@ -2,6 +2,9 @@ package irail
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -60,9 +63,9 @@ func TestFollowBringsALegUpToDate(t *testing.T) {
 		Departure: Stop{Station: "Brussel-Zuid", Scheduled: time.Unix(1792944780, 0)},
 		Arrival:   Stop{Station: "Aarlen", Scheduled: time.Unix(1792956120, 0)}}
 
-	got := leg.Follow(route)
+	got, ok := leg.Follow(route)
 
-	if !got.Departure.Passed || got.Departure.Delay != 3*time.Minute || got.Departure.Platform != "15" {
+	if !ok || !got.Departure.Passed || got.Departure.Delay != 3*time.Minute || got.Departure.Platform != "15" {
 		t.Errorf("departure = %+v", got.Departure)
 	}
 	if len(got.Calls) != 11 || got.Calls[0].Station != "Brussel-Centraal" || got.Calls[10].Station != "Marbehan" {
@@ -80,8 +83,8 @@ func TestFollowLeavesALegOffTheRouteAlone(t *testing.T) {
 	route := recordedRoute(t)
 	leg := Leg{Departure: Stop{Station: "Gent-Sint-Pieters"}, Arrival: Stop{Station: "Aarlen"}}
 
-	if got := leg.Follow(route); got.Departure != leg.Departure || got.Calls != nil || got.Arrival != leg.Arrival {
-		t.Errorf("Follow changed a leg that is not on the route: %+v", got)
+	if got, ok := leg.Follow(route); ok || got.Departure != leg.Departure || got.Calls != nil || got.Arrival != leg.Arrival {
+		t.Errorf("Follow changed a leg that is not on the route: %+v, %v", got, ok)
 	}
 }
 
@@ -93,5 +96,40 @@ func TestRouteIsOneLegFromTheFirstStationToTheLast(t *testing.T) {
 	}
 	if len(leg.Calls) != 12 || !leg.Departure.Passed || leg.Arrival.Passed {
 		t.Errorf("%d calls, departure passed %v, arrival passed %v", len(leg.Calls), leg.Departure.Passed, leg.Arrival.Passed)
+	}
+}
+
+func TestRouteThroughFindsATrainThatStartedTheDayBefore(t *testing.T) {
+	brussels, _ := time.LoadLocation("Europe/Brussels")
+	passing := time.Date(2026, 10, 26, 0, 15, 0, 0, brussels)
+	var dates []string
+	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		date := r.URL.Query().Get("date")
+		dates = append(dates, date)
+		at := passing.Unix()
+		if date == "261026" {
+			at = passing.AddDate(0, 0, 1).Unix()
+		}
+		fmt.Fprintf(w, `{"vehicleinfo":{"shortname":"IC 1"},"stops":{"stop":[
+			{"station":"Oostende","scheduledArrivalTime":"%d","scheduledDepartureTime":"%d"},
+			{"station":"Gent-Sint-Pieters","scheduledArrivalTime":"%d","scheduledDepartureTime":"%d"}]}}`, at-2700, at-2700, at, at)
+	})
+
+	route, err := client.RouteThrough(context.Background(), "BE.NMBS.IC1", "Gent-Sint-Pieters", passing, "nl")
+
+	if err != nil || strings.Join(dates, ",") != "261026,251026" || !route.Stops[1].Departure.Equal(passing) {
+		t.Errorf("asked %v, got %+v, %v", dates, route, err)
+	}
+}
+
+func TestRouteThroughSaysWhenNoRunFits(t *testing.T) {
+	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"vehicleinfo":{"shortname":"IC 1"},"stops":{"stop":[{"station":"Oostende","scheduledDepartureTime":"1"}]}}`))
+	})
+
+	_, err := client.RouteThrough(context.Background(), "BE.NMBS.IC1", "Gent-Sint-Pieters", time.Unix(1792940000, 0), "nl")
+
+	if err == nil || !strings.Contains(err.Error(), "no run of IC 1 that stops at Gent-Sint-Pieters") {
+		t.Errorf("error = %v", err)
 	}
 }

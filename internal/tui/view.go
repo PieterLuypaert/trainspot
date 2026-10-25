@@ -367,6 +367,8 @@ func (m Model) stopsBody(width int) (main, tail []string) {
 	lines, legend := board.JourneyStops(m.shownJourney(), board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
 	source := board.Footer(m.trip.Updated, m.cfg.Location)
 	switch {
+	case m.left != nil && arrived(*m.left):
+		source = indent + faint.Render("This journey has arrived.")
 	case m.left != nil && m.leftAt.IsZero():
 		source = indent + faint.Render("Its train has left iRail's list of journeys, so trainspot follows the train itself.")
 	case m.left != nil:

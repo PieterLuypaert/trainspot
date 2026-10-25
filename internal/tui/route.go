@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -72,8 +73,12 @@ func (m Model) scrollKey(k tea.KeyPressMsg) Model {
 
 func (m *Model) fetchRoute() tea.Cmd {
 	id, source, d, lang, loc := m.begin(), m.cfg.Source, m.routeOf, m.cfg.Lang, m.cfg.Location
+	station := m.board.Station
+	if station == "" {
+		station = m.from.Name(lang)
+	}
 	return func() tea.Msg {
-		route, err := source.Route(context.Background(), d.Vehicle, d.Scheduled.In(loc), lang)
+		route, err := source.RouteThrough(context.Background(), d.Vehicle, station, d.Scheduled.In(loc), lang)
 		return routeMsg{id: id, route: route, err: err}
 	}
 }
@@ -89,23 +94,36 @@ func (m *Model) gotRoute(msg routeMsg) {
 }
 
 // fetchFollow asks for the route of every train in the journey the stops
-// screen keeps, to follow it now that the journey list has dropped it.
+// screen keeps that has yet to arrive, to follow the journey now that the
+// journey list has dropped it. One train iRail cannot give does not keep
+// the others from being followed.
 func (m *Model) fetchFollow() tea.Cmd {
 	id, source, journey, lang, loc := m.begin(), m.cfg.Source, *m.left, m.cfg.Lang, m.cfg.Location
 	return func() tea.Msg {
-		followed := irail.Journey{Legs: slices.Clone(journey.Legs)}
-		var updated time.Time
-		for i, leg := range followed.Legs {
-			if leg.Vehicle == "" {
+		msg := followMsg{id: id, journey: irail.Journey{Legs: slices.Clone(journey.Legs)}}
+		var problem error
+		followed := 0
+		for i, leg := range msg.journey.Legs {
+			if leg.Vehicle == "" || leg.Arrival.Passed {
 				continue
 			}
-			r, err := source.Route(context.Background(), leg.Vehicle, leg.Departure.Scheduled.In(loc), lang)
+			r, err := source.RouteThrough(context.Background(), leg.Vehicle, leg.Departure.Station, leg.Departure.Scheduled.In(loc), lang)
 			if err != nil {
-				return followMsg{id: id, err: err}
+				problem = err
+				continue
 			}
-			followed.Legs[i], updated = leg.Follow(r), r.Updated
+			if next, ok := leg.Follow(r); ok {
+				msg.journey.Legs[i], msg.updated = next, r.Updated
+				followed++
+			}
 		}
-		return followMsg{id: id, journey: followed, updated: updated}
+		if followed == 0 && problem == nil && !arrived(journey) {
+			problem = errors.New("iRail's routes do not show this journey's trains")
+		}
+		if followed == 0 {
+			msg.err = problem
+		}
+		return msg
 	}
 }
 
@@ -115,8 +133,17 @@ func (m *Model) gotFollow(msg followMsg) {
 	}
 	m.waiting, m.err = 0, msg.err
 	if msg.err == nil {
-		m.left, m.leftAt = &msg.journey, msg.updated
+		m.left = &msg.journey
+		if !msg.updated.IsZero() {
+			m.leftAt = msg.updated
+		}
 	}
+}
+
+// arrived tells whether every train of the journey has reached where its
+// leg ends.
+func arrived(j irail.Journey) bool {
+	return !slices.ContainsFunc(j.Legs, func(l irail.Leg) bool { return !l.Walking && !l.Arrival.Passed })
 }
 
 // keepBoardChoice finds the chosen departure on a refreshed board, by its

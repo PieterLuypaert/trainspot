@@ -16,8 +16,9 @@ type Stop struct {
 	PlatformChanged bool
 	Cancelled       bool
 	// Passed says the train has left this stop, or reached it when it is
-	// where the leg arrives.
-	Passed bool
+	// where the leg arrives. Arrived says the train has reached where the
+	// leg leaves, so with Passed unset it stands there.
+	Passed, Arrived bool
 }
 
 func (s Stop) Expected() time.Time {
@@ -35,8 +36,10 @@ type Call struct {
 	// Cancelled says the train skips this stop after all.
 	Cancelled bool
 	// EndsHere says the train now ends here: it still arrives, so you can
-	// get off, but goes no further.
-	EndsHere bool
+	// get off, but goes no further. StartsHere is the other way round: it
+	// leaves from here but does not arrive, which at a run's last station
+	// means its arrival is cancelled.
+	EndsHere, StartsHere bool
 	// Passed says the train has left here, Arrived that it has reached it.
 	Passed, Arrived bool
 	// Extra is a stop the timetable did not plan.
@@ -134,6 +137,7 @@ func (c callJSON) call() Call {
 		PlatformChanged: platformChanged,
 		Cancelled:       bool(c.ArrivalCanceled) && bool(c.DepartureCanceled),
 		EndsHere:        bool(c.DepartureCanceled) && !bool(c.ArrivalCanceled),
+		StartsHere:      bool(c.ArrivalCanceled) && !bool(c.DepartureCanceled),
 		Passed:          bool(c.Left),
 		Arrived:         bool(c.Arrived),
 		Extra:           bool(c.IsExtraStop),
