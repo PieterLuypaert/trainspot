@@ -57,6 +57,8 @@ func sampleTrip() irail.Trip {
 type fakeSource struct {
 	trips, boards     []string
 	tripErr, boardErr error
+	// firstGone leaves the first journey out, as when it has left.
+	firstGone bool
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -64,7 +66,11 @@ func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.
 	if f.tripErr != nil {
 		return irail.Trip{}, f.tripErr
 	}
-	return sampleTrip(), nil
+	trip := sampleTrip()
+	if f.firstGone {
+		trip.Journeys = trip.Journeys[1:]
+	}
+	return trip, nil
 }
 
 func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Liveboard, error) {
@@ -234,6 +240,16 @@ func TestChoosesAJourneyToSeeItsStops(t *testing.T) {
 	if strings.Contains(h.screen(), "IC 3615") {
 		t.Errorf("the first journey's stops are still shown:\n%s", h.screen())
 	}
+}
+
+func TestKeepsTheChosenJourneyWhenAnEarlierOneLeaves(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(down)
+
+	h.src.firstGone = true
+	h.press(letter('r'))
+
+	h.wantOnScreen("▸ 18:46 → 22:10", "IC 2114 to Luxemburg")
 }
 
 func TestOpensOnTheLastTrip(t *testing.T) {
