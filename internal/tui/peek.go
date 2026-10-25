@@ -66,12 +66,12 @@ func (m Model) wideBoard() bool {
 // boardWidth is how wide the board is drawn in width. The chosen train's
 // route stands beside it only when the board keeps every column and the
 // route gets minRouteWidth, as the journeys do; the board then takes up to
-// its full width and the route the rest. Otherwise the board takes all of
-// it.
+// its full width and the route the rest. Otherwise, and when no train
+// leaves, the board takes all of it.
 func (m Model) boardWidth(width int) int {
 	full, least := board.Widths(m.board, board.Options{Now: m.cfg.Now(), Location: m.cfg.Location})
 	room := width - lipgloss.Width(divider) - minRouteWidth
-	if width < twoPanesWidth || least > room {
+	if width < twoPanesWidth || least > room || len(m.board.Departures) == 0 {
 		return width
 	}
 	return min(full, room)

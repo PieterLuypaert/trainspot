@@ -1379,6 +1379,18 @@ func TestAWideBoardKeepsEveryColumnBesideThePane(t *testing.T) {
 	h.wantOnScreen("IC 2219 to Brussels Airport - Zaventem")
 }
 
+func TestAnEmptyBoardKeepsTheWholeWidth(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.board = &irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 20})
+
+	h.press(letter('d'))
+
+	if row := screenRow(h, "No departures"); besidePane(row) || !strings.Contains(row, "No departures are listed right now.") {
+		t.Errorf("an empty board shares the window with a pane: %q", row)
+	}
+}
+
 func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.src.departures = 3
