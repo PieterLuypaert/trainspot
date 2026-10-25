@@ -6,14 +6,42 @@ Live NMBS train departures and journeys for any station in Belgium, right in you
 go install github.com/PieterLuypaert/trainspot@latest
 ```
 
-This needs Go 1.25 or newer. Run `trainspot -h` for every option.
+This needs Go 1.26 or newer. Run `trainspot -h` for every option.
 
 ```sh
+trainspot                                 # plan a trip on a full screen
 trainspot gent sint pieters               # the departure board of Gent-Sint-Pieters
 trainspot gent sint pieters --to aarlen   # the next journeys from Gent to Arlon
 trainspot mons                            # Bergen and Mons are the same station
 trainspot liège-guillemins --lang fr      # station names in French: nl, fr, en or de
 ```
+
+## The trip screen
+
+```text
+╭─ Gent-Sint-Pieters → Brussel-Zuid ──────────────────────── Sun 25 Oct 17:15 ─╮
+│                                                                              │
+│ ▸ 17:52 → 18:31      39 min   direct                                         │
+│   18:03 → 18:50 +1   48 min   direct                                         │
+│   18:13 → 19:07      54 min   direct                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│     17:52  Gent-Sint-Pieters  10  IC 1517 to Genk                            │
+│     18:31  Brussel-Zuid       12                                             │
+│                                                                              │
+│   +1 = 1 min late                                                            │
+│   Live NMBS data via iRail, updated 17:15                                    │
+╰─ ↑↓ choose · d departures · e edit · s swap · r refresh · q quit ────────────╯
+```
+
+Plain `trainspot` opens a full screen to plan a trip. Type where you leave from and
+where you are going, and it suggests stations as you type, in any of the four languages.
+Pick one with the arrow keys and enter, or tab to the other field. Once both are set,
+enter shows the next journeys, with the stops of the one you choose below them.
+
+On the journeys, `d` shows the departure board of where the trip starts, `s` swaps the
+two stations, `e` edits them and `r` fetches everything again; it also refreshes by
+itself every minute. trainspot remembers the trip in `~/.config/trainspot` and opens on
+it the next time, so your daily trip is one word away.
 
 ## Departures
 
@@ -70,7 +98,8 @@ and asks which one you mean. Typos get suggestions.
 
 ## In scripts
 
-Piped into another command, trainspot prints plain text. In a terminal, `--no-color`
+Without a terminal, plain `trainspot` prints its help and exits with 2. Piped into
+another command, trainspot prints plain text. In a terminal, `--no-color`
 drops the colours and keeps only bold and dim text. Without a terminal to answer, a name that
 fits several stations makes trainspot list them and exit with 2. Problems at iRail
 exit with 1.
@@ -79,4 +108,4 @@ exit with 1.
 
 The departures and journeys come live from the [iRail API](https://docs.irail.be),
 which serves the NMBS's own data. trainspot keeps the list of stations for a week in
-`~/.cache/trainspot`.
+`~/.cache/trainspot` and the last trip of the screen in `~/.config/trainspot`.
