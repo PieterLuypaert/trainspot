@@ -103,6 +103,13 @@ func JourneyStops(j irail.Journey, o JourneyOptions) (lines, legendLines []strin
 	return lines, v.legendLines(v.notes)
 }
 
+// RouteStops draws every stop of a train's run, as JourneyStops does for a
+// leg, without the train's own line: a caller names the train itself.
+func RouteStops(r irail.Route, o JourneyOptions) (lines, legendLines []string) {
+	lines, legendLines = JourneyStops(irail.Journey{Legs: []irail.Leg{r.Leg()}}, o)
+	return lines[1:], legendLines
+}
+
 type journeyView struct {
 	o JourneyOptions
 	// detailed puts each train on a line of its own above its leg, lists
@@ -222,15 +229,18 @@ func (v *journeyView) stops(j irail.Journey, changes []irail.Change) []string {
 			lines = append(lines, v.change(changes[0]))
 			changes = changes[1:]
 		}
-		if v.detailed {
-			lines = append(lines, indent+legLabel(leg, bold), v.stop(leg.Departure, ""))
-			for _, c := range leg.Calls {
-				lines = append(lines, v.call(c))
-			}
-		} else {
-			lines = append(lines, v.stop(leg.Departure, legLabel(leg, plain)))
+		if !v.detailed {
+			lines = append(lines, v.stop(leg.Departure, legLabel(leg, plain)), v.stop(leg.Arrival, ""))
+			continue
 		}
-		lines = append(lines, v.stop(leg.Arrival, ""))
+		lines = append(lines, indent+legLabel(leg, bold), v.stop(leg.Departure, ""))
+		// passed follows the train along the leg, to mark where it is.
+		passed := leg.Departure.Passed
+		for _, c := range leg.Calls {
+			lines = append(lines, v.call(c, position(c.Arrived, c.Passed, passed)))
+			passed = c.Passed
+		}
+		lines = append(lines, v.stop(leg.Arrival, position(false, leg.Arrival.Passed, passed)))
 	}
 	return lines
 }
@@ -279,21 +289,36 @@ const callMark = "· "
 
 // call draws a station the train stops at on the way, with its departure
 // time; dimmed once the train has left it.
-func (v *journeyView) call(c irail.Call) string {
+// call draws a station the train stops at on the way, after the label
+// that says where the train is, if any.
+func (v *journeyView) call(c irail.Call, where string) string {
 	at, late := callTime(c)
-	style, delay, label := plain, v.delayMark(late, ""), ""
+	style, delay, label := plain, v.delayMark(late, ""), where
 	switch {
 	case c.Cancelled:
 		style, delay, label = faint, "", alarm.Render("cancelled")
 	case c.EndsHere:
-		label = alarm.Render("train ends here")
+		label = strings.TrimSpace(where + "  " + alarm.Render("train ends here"))
 	case c.Extra:
-		label = faint.Render("extra stop")
+		label = strings.TrimSpace(where + "  " + faint.Render("extra stop"))
 	}
 	if c.Passed {
 		style = faint
 	}
 	return v.line(style, at, delay, callMark+c.Station, callPlatform(c), label)
+}
+
+// position says where the train is, for a stop it has arrived at or
+// passed, after the stop before it was passed or not: at this stop, or
+// heading for it.
+func position(arrived, passed, passedBefore bool) string {
+	switch {
+	case arrived && !passed:
+		return green.Render("train is here")
+	case passedBefore && !passed:
+		return green.Render("next stop")
+	}
+	return ""
 }
 
 // callTime is the time a call shows: when the train leaves, or when it

@@ -1,6 +1,7 @@
 package board
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -309,5 +310,38 @@ func TestTheJourneyListLeavesPassedStopsAlone(t *testing.T) {
 	}
 	if strings.Contains(out, faint.Render("Gent-Sint-Pieters")) {
 		t.Errorf("the list dims a passed stop:\n%q", out)
+	}
+}
+
+func TestRouteStopsShowWhereTheTrainIs(t *testing.T) {
+	leaves := func(station, hhmm string, passed bool) irail.Call {
+		return irail.Call{Station: station, Arrival: at(hhmm), Departure: at(hhmm), Passed: passed, Arrived: passed}
+	}
+	route := irail.Route{Train: "IC 2117", Stops: []irail.Call{
+		leaves("Brussel-Zuid", "17:13", true),
+		leaves("Leuven", "17:49", true),
+		leaves("Ottignies", "18:18", false),
+		leaves("Namen", "18:45", false),
+		leaves("Aarlen", "21:22", false),
+	}}
+	atNamen := route
+	atNamen.Stops = append([]irail.Call{}, route.Stops...)
+	atNamen.Stops[2].Passed, atNamen.Stops[2].Arrived = true, true
+	atNamen.Stops[3].Arrived = true
+
+	text := func(r irail.Route) string {
+		lines, _ := RouteStops(r, JourneyOptions{Width: 80, Now: at("18:00"), Location: brussels})
+		return ansi.Strip(strings.Join(lines, "\n"))
+	}
+
+	between := text(route)
+	if strings.Contains(between, "IC 2117") || !strings.HasPrefix(between, "    17:13  Brussel-Zuid") {
+		t.Errorf("the route starts with the train's own line or not with its first station:\n%s", between)
+	}
+	if !regexp.MustCompile(`· Ottignies +next stop`).MatchString(between) || strings.Contains(between, "train is here") {
+		t.Errorf("between Leuven and Ottignies:\n%s", between)
+	}
+	if standing := text(atNamen); !regexp.MustCompile(`· Namen +train is here`).MatchString(standing) || strings.Contains(standing, "next stop") {
+		t.Errorf("standing in Namen:\n%s", standing)
 	}
 }
