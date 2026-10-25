@@ -1045,7 +1045,7 @@ func TestAWideBoardShowsTheChosenTrainsRouteBesideIt(t *testing.T) {
 			row = l
 		}
 	}
-	if !strings.Contains(row, "│") {
+	if !besidePane(row) {
 		t.Errorf("no pane beside the chosen departure: %q", row)
 	}
 	h.wantOnScreen("IC 535 to Oostende", "◆  Wetteren", "train is here")
@@ -1059,6 +1059,23 @@ func TestAWideBoardShowsTheChosenTrainsRouteBesideIt(t *testing.T) {
 		t.Errorf("opening the route fetched it again: %v", h.src.routes)
 	}
 	h.wantOnScreen("IC 535 to Oostende · from Gent-Sint-Pieters 16:49")
+}
+
+// besidePane tells whether a row has a divider between two panes, not
+// just the frame's own borders.
+func besidePane(row string) bool {
+	return strings.Contains(strings.Trim(row, "│ "), " │ ")
+}
+
+func TestANarrowBoardHasNoPaneBesideIt(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(letter('d'))
+
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "▸ 16:49") && besidePane(l) {
+			t.Errorf("a narrow board has a pane beside it: %q", l)
+		}
+	}
 }
 
 func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {

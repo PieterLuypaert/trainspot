@@ -46,8 +46,17 @@ func (m Model) chosenDeparture() (irail.Departure, bool) {
 }
 
 func (m Model) wideBoard() bool {
-	width, _ := m.size()
-	return width-4 >= twoPanesWidth
+	width, _ := m.inside()
+	return boardWidth(width) < width
+}
+
+// boardWidth is how wide the board is drawn in width: all of it, or a
+// little over half with the chosen train's route beside it.
+func boardWidth(width int) int {
+	if width < twoPanesWidth {
+		return width
+	}
+	return width * 55 / 100
 }
 
 // settle waits for the choice to rest before its route is fetched.

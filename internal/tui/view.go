@@ -51,9 +51,15 @@ func (m Model) size() (width, height int) {
 	return max(width, minWidth), max(height, minHeight)
 }
 
+// inside is the room within the frame's borders.
+func (m Model) inside() (width, room int) {
+	width, height := m.size()
+	return width - 4, height - 2
+}
+
 func (m Model) render() string {
 	width, height := m.size()
-	inner, room := width-4, height-2
+	inner, room := m.inside()
 	clock := faint.Render(m.cfg.Now().In(m.cfg.Location).Format("Mon 2 Jan 15:04"))
 	switch m.screen {
 	case journeys:
@@ -294,13 +300,12 @@ func (m Model) departuresBody(width, room int) []string {
 	case m.board.Updated.IsZero() && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
-	if width < twoPanesWidth {
-		head, rows, tail, shown := m.departuresView(width, room)
+	left := boardWidth(width)
+	head, rows, tail, shown := m.departuresView(left, room)
+	if left == width {
 		return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
 	}
 	// In a wide window the chosen train's route stands beside the board.
-	left := width * 55 / 100
-	head, rows, tail, shown := m.departuresView(left, room)
 	departures := append(head, scrollBody(rows, nil, shown, m.boardScroll)...)
 	route := m.peekLines(width-left-lipgloss.Width(divider), room-len(tail))
 	return append(sideBySide(departures, route, left), tail...)
@@ -326,8 +331,8 @@ func (m Model) departuresView(width, room int) (head, rows, tail []string, shown
 // departure in view.
 func (m *Model) showBoardChoice() {
 	m.boardChoice = max(0, min(m.boardChoice, len(m.board.Departures)-1))
-	width, height := m.size()
-	_, rows, _, shown := m.departuresView(width-4, height-2)
+	width, room := m.inside()
+	_, rows, _, shown := m.departuresView(boardWidth(width), room)
 	if m.boardChoice < m.boardScroll {
 		m.boardScroll = m.boardChoice
 	}
@@ -483,13 +488,13 @@ func (m Model) boardStation() string {
 // lines, the part that stays in view, and how many lines show above that
 // part.
 func (m Model) scrollView() (main, tail []string, shown int) {
-	width, height := m.size()
+	width, room := m.inside()
 	if m.screen == route {
-		main, tail = m.routeBody(width - 4)
+		main, tail = m.routeBody(width)
 	} else {
-		main, tail = m.stopsBody(width - 4)
+		main, tail = m.stopsBody(width)
 	}
-	if space := height - 2 - len(tail); len(main) > space {
+	if space := room - len(tail); len(main) > space {
 		return main, tail, max(0, space-1)
 	}
 	return main, tail, len(main)
