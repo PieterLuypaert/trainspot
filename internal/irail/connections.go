@@ -15,10 +15,32 @@ type Stop struct {
 	Platform        string
 	PlatformChanged bool
 	Cancelled       bool
+	// Passed says the train has left this stop, or reached it when it is
+	// where the leg arrives.
+	Passed bool
 }
 
 func (s Stop) Expected() time.Time {
 	return s.Scheduled.Add(s.Delay)
+}
+
+// Call is a station a train stops at on the way, between where a leg
+// starts and where it ends.
+type Call struct {
+	Station                      string
+	Arrival, Departure           time.Time
+	ArrivalDelay, DepartureDelay time.Duration
+	Platform                     string
+	PlatformChanged              bool
+	// Cancelled says the train skips this stop after all.
+	Cancelled bool
+	// EndsHere says the train now ends here: it still arrives, so you can
+	// get off, but goes no further.
+	EndsHere bool
+	// Passed says the train has left here.
+	Passed bool
+	// Extra is a stop the timetable did not plan.
+	Extra bool
 }
 
 // Leg is one train ride, or a walk between two stations, within a journey.
@@ -28,7 +50,9 @@ type Leg struct {
 	Direction string
 	Walking   bool
 	Departure Stop
-	Arrival   Stop
+	// Calls are the stations the train stops at on the way, in order.
+	Calls   []Call
+	Arrival Stop
 }
 
 // Journey is a way to travel from one station to another, in one or more
@@ -73,6 +97,44 @@ type endpointJSON struct {
 	Direction struct {
 		Name string `json:"name"`
 	} `json:"direction"`
+	Left    flag `json:"left"`
+	Arrived flag `json:"arrived"`
+	Stops   struct {
+		Stop []callJSON `json:"stop"`
+	} `json:"stops"`
+}
+
+type callJSON struct {
+	Station                string `json:"station"`
+	ScheduledArrivalTime   number `json:"scheduledArrivalTime"`
+	ArrivalDelay           number `json:"arrivalDelay"`
+	ScheduledDepartureTime number `json:"scheduledDepartureTime"`
+	DepartureDelay         number `json:"departureDelay"`
+	ArrivalCanceled        flag   `json:"arrivalCanceled"`
+	DepartureCanceled      flag   `json:"departureCanceled"`
+	Left                   flag   `json:"left"`
+	IsExtraStop            flag   `json:"isExtraStop"`
+	Platform               string `json:"platform"`
+	PlatformInfo           struct {
+		Normal *flag `json:"normal"`
+	} `json:"platforminfo"`
+}
+
+func (c callJSON) call() Call {
+	platform, platformChanged := platform(c.Platform, c.PlatformInfo.Normal)
+	return Call{
+		Station:         c.Station,
+		Arrival:         time.Unix(int64(c.ScheduledArrivalTime), 0),
+		ArrivalDelay:    time.Duration(c.ArrivalDelay) * time.Second,
+		Departure:       time.Unix(int64(c.ScheduledDepartureTime), 0),
+		DepartureDelay:  time.Duration(c.DepartureDelay) * time.Second,
+		Platform:        platform,
+		PlatformChanged: platformChanged,
+		Cancelled:       bool(c.ArrivalCanceled) && bool(c.DepartureCanceled),
+		EndsHere:        bool(c.DepartureCanceled) && !bool(c.ArrivalCanceled),
+		Passed:          bool(c.Left),
+		Extra:           bool(c.IsExtraStop),
+	}
 }
 
 // Trip holds the journeys iRail found between two stations.
@@ -118,6 +180,9 @@ func (c connectionJSON) journey() Journey {
 			leg.Train = trainName(dep.VehicleInfo.ShortName, dep.Vehicle)
 			leg.Direction = dep.Direction.Name
 		}
+		for _, c := range dep.Stops.Stop {
+			leg.Calls = append(leg.Calls, c.call())
+		}
 		j.Legs = append(j.Legs, leg)
 	}
 	return j
@@ -132,6 +197,7 @@ func (e endpointJSON) stop() Stop {
 		Platform:        platform,
 		PlatformChanged: platformChanged,
 		Cancelled:       bool(e.Canceled),
+		Passed:          bool(e.Left) || bool(e.Arrived),
 	}
 }
 

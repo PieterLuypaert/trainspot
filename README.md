@@ -38,9 +38,11 @@ where you are going, and it suggests stations as you type, in any of the four la
 Pick one with the arrow keys and enter, or tab to the other field. Once both are set,
 enter shows the next journeys, with the stops of the one you choose below them.
 
-On the journeys, `d` shows the departure board of where the trip starts, `s` swaps the
-two stations, `e` edits them and `r` fetches everything again; it also refreshes by
-itself every minute. trainspot remembers the trip in `~/.config/trainspot` and opens on
+On the journeys, enter shows every stop of the chosen journey: per train where it
+leaves, each station on the way and where it arrives, with a stop it skips or where the
+train now ends marked. `d` shows the departure board of
+where the trip starts, `s` swaps the two stations, `e` edits them and `r` fetches
+everything again; it also refreshes by itself every minute. trainspot remembers the trip in `~/.config/trainspot` and opens on
 it the next time, so your daily trip is one word away.
 
 ## Departures

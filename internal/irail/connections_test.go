@@ -63,6 +63,65 @@ func TestJourneysReadARecordedAnswer(t *testing.T) {
 	}
 }
 
+func TestJourneysReadTheStopsOnTheWay(t *testing.T) {
+	client, _ := serveFile(t, "testdata/connections-gent-sint-pieters-aarlen.json")
+
+	trip, err := client.Journeys(context.Background(), "BE.NMBS.008892007", "BE.NMBS.008866001", "nl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	toBrussels, toArlon := trip.Journeys[0].Legs[0], trip.Journeys[0].Legs[1]
+	if len(toBrussels.Calls) != 6 || len(toArlon.Calls) != 11 {
+		t.Fatalf("calls = %d and %d, want 6 and 11", len(toBrussels.Calls), len(toArlon.Calls))
+	}
+	wetteren := toBrussels.Calls[0]
+	want := Call{
+		Station: "Wetteren",
+		Arrival: time.Unix(1792941840, 0), ArrivalDelay: 3 * time.Minute,
+		Departure: time.Unix(1792941900, 0), DepartureDelay: 3 * time.Minute,
+	}
+	if wetteren != want {
+		t.Errorf("first call = %+v, want %+v", wetteren, want)
+	}
+	if toArlon.Calls[0].Station != "Brussel-Centraal" || toArlon.Calls[10].Station != "Marbehan" {
+		t.Errorf("calls to Arlon run from %s to %s", toArlon.Calls[0].Station, toArlon.Calls[10].Station)
+	}
+}
+
+func TestJourneysReadPassedAndCancelledCalls(t *testing.T) {
+	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"connection":[{
+			"departure":{"station":"Gent-Sint-Pieters","time":"1792940000","left":"1","vehicleinfo":{"shortname":"IC 1"},"platform":"9",
+				"stops":{"number":"2","stop":[
+					{"station":"Wetteren","scheduledArrivalTime":"1792940600","scheduledDepartureTime":"1792940660","left":"1","platform":"2","platforminfo":{"normal":"0"}},
+					{"station":"Aalst","scheduledArrivalTime":"1792941200","scheduledDepartureTime":"1792941260","departureCanceled":"1","isExtraStop":"1","platform":"?"},
+					{"station":"Denderleeuw","scheduledArrivalTime":"1792941500","scheduledDepartureTime":"1792941560","arrivalCanceled":"1","departureCanceled":"1"}]}},
+			"arrival":{"station":"Brussel-Zuid","time":"1792942000","arrived":"0","platform":"14"}
+		}]}`))
+	})
+
+	trip, err := client.Journeys(context.Background(), "a", "b", "nl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	leg := trip.Journeys[0].Legs[0]
+	wetteren, aalst, denderleeuw := leg.Calls[0], leg.Calls[1], leg.Calls[2]
+	if !leg.Departure.Passed || leg.Arrival.Passed {
+		t.Errorf("departure passed %v, arrival passed %v", leg.Departure.Passed, leg.Arrival.Passed)
+	}
+	if !wetteren.Passed || wetteren.Platform != "2" || !wetteren.PlatformChanged || wetteren.Cancelled {
+		t.Errorf("Wetteren = %+v", wetteren)
+	}
+	if aalst.Cancelled || !aalst.EndsHere || !aalst.Extra || aalst.Passed || aalst.Platform != "" {
+		t.Errorf("Aalst, where the train now ends = %+v", aalst)
+	}
+	if !denderleeuw.Cancelled || denderleeuw.EndsHere {
+		t.Errorf("Denderleeuw, which the train skips = %+v", denderleeuw)
+	}
+}
+
 func TestJourneysReadWalksAndCancelledTrains(t *testing.T) {
 	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"connection":[{
