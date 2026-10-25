@@ -2,6 +2,7 @@ package board
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,8 +38,9 @@ func Journeys(list []irail.Journey, o JourneyOptions) string {
 	}
 	v := newJourneyView(list, o)
 	for _, j := range list {
-		out.WriteString(indent + v.summary(j) + "\n")
-		for _, line := range v.stops(j) {
+		changes := j.Changes()
+		out.WriteString(indent + v.summary(j, changes) + "\n")
+		for _, line := range v.stops(j, changes) {
 			out.WriteString(line + "\n")
 		}
 		out.WriteString("\n")
@@ -88,28 +90,28 @@ func (v *journeyView) delayColumn(mark string) string {
 	return " " + mark + strings.Repeat(" ", v.delay-lipgloss.Width(mark))
 }
 
-func (v *journeyView) summary(j irail.Journey) string {
+func (v *journeyView) summary(j irail.Journey, changes []irail.Change) string {
 	dep, arr := j.Departure(), j.Arrival()
 	times := v.day(dep.Scheduled) + bold.Render(v.clock(dep.Scheduled)) + v.delayMark(dep.Delay, " ") +
 		" → " + bold.Render(v.clock(arr.Scheduled)) + v.delayMark(arr.Delay, " ")
 	if j.Cancelled() {
 		return times + "   " + alarm.Render("cancelled")
 	}
-	parts := []string{times, formatDuration(j.Duration()), changesText(len(j.Legs) - 1)}
-	if j.Missed() {
+	parts := []string{times, formatDuration(j.Duration()), changesText(len(changes))}
+	if slices.ContainsFunc(changes, irail.Change.Missed) {
 		parts = append(parts, alarm.Render("change missed"))
 	}
 	return strings.Join(parts, "   ")
 }
 
-func (v *journeyView) stops(j irail.Journey) []string {
+// stops lists every stop, with a change before each train after the
+// first, which is how Changes counts them.
+func (v *journeyView) stops(j irail.Journey, changes []irail.Change) []string {
 	var lines []string
-	changes := j.Changes()
 	for i, leg := range j.Legs {
-		// The change before a walk is no change at all: the walk starts on
-		// arrival.
 		if i > 0 && !leg.Walking {
-			lines = append(lines, v.change(changes[i-1]))
+			lines = append(lines, v.change(changes[0]))
+			changes = changes[1:]
 		}
 		lines = append(lines, v.stop(leg.Departure, legLabel(leg)), v.stop(leg.Arrival, ""))
 	}

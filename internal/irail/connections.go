@@ -138,9 +138,8 @@ func (e endpointJSON) stop() Stop {
 // TightChange is how short a change can be before it counts as tight.
 const TightChange = 3 * time.Minute
 
-// Change is a change from one leg of a journey to the next.
+// Change is a change from one train to the next.
 type Change struct {
-	Station string
 	// Planned is the time to change by the timetable, Real the time left
 	// once the delays are counted.
 	Planned time.Duration
@@ -155,17 +154,40 @@ func (c Change) Tight() bool {
 	return c.Real >= 0 && c.Real < TightChange
 }
 
+// Changes lists the changes from one train to the next, one for every
+// leg after the first that is not a walk. A walk between two stations
+// belongs to the change after it, since it starts when the train before
+// it arrives.
 func (j Journey) Changes() []Change {
 	var changes []Change
 	for i := 1; i < len(j.Legs); i++ {
-		arrival, departure := j.Legs[i-1].Arrival, j.Legs[i].Departure
+		if j.Legs[i].Walking {
+			continue
+		}
+		planned, expected := j.reach(i)
+		departure := j.Legs[i].Departure
 		changes = append(changes, Change{
-			Station: arrival.Station,
-			Planned: departure.Scheduled.Sub(arrival.Scheduled),
-			Real:    departure.Expected().Sub(arrival.Expected()),
+			Planned: departure.Scheduled.Sub(planned),
+			Real:    departure.Expected().Sub(expected),
 		})
 	}
 	return changes
+}
+
+// reach is when you get to the start of leg i, by the timetable and with
+// the delays. A walk takes its planned time from when you can start it.
+func (j Journey) reach(i int) (planned, expected time.Time) {
+	before := j.Legs[i-1]
+	if !before.Walking {
+		return before.Arrival.Scheduled, before.Arrival.Expected()
+	}
+	start := before.Departure.Scheduled
+	if i >= 2 {
+		if _, arrives := j.reach(i - 1); arrives.After(start) {
+			start = arrives
+		}
+	}
+	return before.Arrival.Scheduled, start.Add(before.Arrival.Scheduled.Sub(before.Departure.Scheduled))
 }
 
 // Duration is how long the journey takes with the delays counted.
@@ -178,16 +200,6 @@ func (j Journey) Duration() time.Duration {
 func (j Journey) Cancelled() bool {
 	for _, leg := range j.Legs {
 		if leg.Departure.Cancelled || leg.Arrival.Cancelled {
-			return true
-		}
-	}
-	return false
-}
-
-// Missed tells whether the delays leave too little time for a change.
-func (j Journey) Missed() bool {
-	for _, c := range j.Changes() {
-		if c.Missed() {
 			return true
 		}
 	}

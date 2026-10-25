@@ -135,8 +135,22 @@ func TestJourneysShowAWalkWithoutAChangeBeforeIt(t *testing.T) {
 	if !strings.Contains(b, "15:20  Haren-Zuid  –  walk") {
 		t.Errorf("walk line missing:\n%s", b)
 	}
-	if strings.Contains(b, "change 0 min") || !strings.Contains(b, "change 6 min") {
+	if strings.Contains(b, "change 0 min") || !strings.Contains(b, "change 6 min") || !strings.Contains(b, "1 change") {
 		t.Errorf("want only the change after the walk:\n%s", b)
+	}
+}
+
+func TestJourneysCountAWalkAsPartOfTheChangeAfterIt(t *testing.T) {
+	j := irail.Journey{Legs: []irail.Leg{
+		ride("S2 3787", "Brussel-Zuid", stop("Mechelen", "15:00", 0, "3"), stop("Haren-Zuid", "15:20", 4, "2")),
+		{Walking: true, Departure: stop("Haren-Zuid", "15:20", 0, ""), Arrival: stop("Haren", "15:30", 0, "")},
+		ride("S4 1", "Aalst", stop("Haren", "15:36", 0, "1"), stop("Aarlen", "18:00", 0, "2")),
+	}}
+
+	b := block(t, renderJourneys([]irail.Journey{j}, 100), "15:00")
+
+	if !strings.Contains(b, "1 change") || strings.Contains(b, "missed") || !strings.Contains(b, "change 2 min, tight") {
+		t.Errorf("the walk should leave one tight change of 2 min:\n%s", b)
 	}
 }
 

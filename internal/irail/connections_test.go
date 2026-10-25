@@ -3,6 +3,7 @@ package irail
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 )
@@ -113,11 +114,33 @@ func TestChangesCountTheDelays(t *testing.T) {
 			t.Fatalf("%s: %d changes", c.name, len(changes))
 		}
 		got := changes[0]
-		if got.Station != "B" || got.Planned != c.planned || got.Real != c.real || got.Tight() != c.tight || got.Missed() != c.missed {
+		if got.Planned != c.planned || got.Real != c.real || got.Tight() != c.tight || got.Missed() != c.missed {
 			t.Errorf("%s: change = %+v, tight %v, missed %v", c.name, got, got.Tight(), got.Missed())
 		}
-		if c.journey.Missed() != c.missed {
-			t.Errorf("%s: journey missed = %v", c.name, c.journey.Missed())
+	}
+}
+
+func TestAWalkBelongsToTheChangeAfterIt(t *testing.T) {
+	base := time.Unix(1792940000, 0)
+	train := func(from, to string, dep, arr, arrDelay int) Leg {
+		return Leg{Train: "S2 1", Departure: Stop{Station: from, Scheduled: at(base, dep)}, Arrival: Stop{Station: to, Scheduled: at(base, arr), Delay: time.Duration(arrDelay) * time.Minute}}
+	}
+	walk := Leg{Walking: true, Departure: Stop{Station: "Haren-Zuid", Scheduled: at(base, 20)}, Arrival: Stop{Station: "Haren", Scheduled: at(base, 30)}}
+
+	cases := []struct {
+		name    string
+		journey Journey
+		want    []Change
+	}{
+		{"walk between trains", Journey{[]Leg{train("A", "Haren-Zuid", 0, 20, 4), walk, train("Haren", "C", 36, 60, 0)}},
+			[]Change{{Planned: 6 * time.Minute, Real: 2 * time.Minute}}},
+		{"walk to the destination", Journey{[]Leg{train("A", "Haren-Zuid", 0, 20, 4), walk}}, nil},
+		{"walk from the start", Journey{[]Leg{walk, train("Haren", "C", 36, 60, 0)}},
+			[]Change{{Planned: 6 * time.Minute, Real: 6 * time.Minute}}},
+	}
+	for _, c := range cases {
+		if got := c.journey.Changes(); !slices.Equal(got, c.want) {
+			t.Errorf("%s: Changes() = %+v, want %+v", c.name, got, c.want)
 		}
 	}
 }
