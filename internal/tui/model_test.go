@@ -1391,6 +1391,25 @@ func TestAnEmptyBoardKeepsTheWholeWidth(t *testing.T) {
 	}
 }
 
+func TestTheBoardsLegendRunsUnderThePaneToo(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	board := &irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	for i := range 3 {
+		board.Departures = append(board.Departures, irail.Departure{
+			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Delay: 12 * time.Minute,
+			Platform: "11", PlatformChanged: true, Train: fmt.Sprintf("IC %d", 535+i), Vehicle: fmt.Sprintf("BE.NMBS.IC%d", 535+i),
+		})
+	}
+	h.src.board = board
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+
+	h.press(letter('d'))
+
+	if row := screenRow(h, "+12 = 12 min late"); !strings.Contains(row, "platform changed") {
+		t.Errorf("the legend wrapped at the board's width: %q", row)
+	}
+}
+
 func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.src.departures = 3
