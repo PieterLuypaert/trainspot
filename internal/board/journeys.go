@@ -127,7 +127,7 @@ func legLabel(leg irail.Leg) string {
 }
 
 func (v *journeyView) stop(s irail.Stop, label string) string {
-	timeStyle := bold
+	timeStyle := plain
 	if s.Cancelled {
 		timeStyle = faint
 		label = strings.TrimSpace(label + "  " + alarm.Render("cancelled"))
