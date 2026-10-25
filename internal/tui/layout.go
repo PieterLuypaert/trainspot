@@ -16,8 +16,8 @@ import (
 // side.
 const twoPanesWidth = 100
 
-// divider stands between two panes.
-var divider = faint.Render("│") + " "
+// divider stands between two panes, with room on both sides.
+var divider = " " + faint.Render("│") + " "
 
 // sideBySide puts the right pane beside the left one, which is padded to
 // leftWidth, with a divider down the rows that hold either.
@@ -43,7 +43,23 @@ func cut(lines []string, rows int, howToSee string) []string {
 	if len(lines) <= rows {
 		return lines
 	}
+	if rows <= 0 {
+		return nil
+	}
 	keep := max(0, rows-1)
 	note := indent + faint.Render(fmt.Sprintf("… %d more lines; %s", len(lines)-keep, howToSee))
 	return append(lines[:keep:keep], note)
+}
+
+// chosenWindow shows lines in at most rows lines, after a blank one,
+// keeping the chosen line in view and saying how many more lie above and
+// below.
+func chosenWindow(lines []string, chosen, rows int) []string {
+	if len(lines)+1 <= rows {
+		return append([]string{""}, lines...)
+	}
+	shown := max(1, rows-2)
+	first := max(0, min(chosen-shown/2, len(lines)-shown))
+	window := append([]string{""}, lines[first:first+shown]...)
+	return append(window, moreLine(first, len(lines)-first-shown))
 }

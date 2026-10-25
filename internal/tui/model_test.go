@@ -74,7 +74,9 @@ type fakeSource struct {
 	firstGone bool
 	// departures is how many departures the board lists; one when zero.
 	departures int
-	routeErrs  map[string]error
+	// trip, when set, is the answer for journeys instead of sampleTrip.
+	trip      *irail.Trip
+	routeErrs map[string]error
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -83,6 +85,9 @@ func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.
 		return irail.Trip{}, f.tripErr
 	}
 	trip := sampleTrip()
+	if f.trip != nil {
+		trip = *f.trip
+	}
 	if f.firstGone {
 		trip.Journeys = trip.Journeys[1:]
 	}
@@ -617,7 +622,7 @@ func TestKeyHintsMakeWayOnANarrowTerminal(t *testing.T) {
 	}
 
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
-	if bottom := lastLine(); !strings.Contains(bottom, "enter all stops") || !strings.Contains(bottom, "q quit") || strings.Contains(bottom, "refresh") {
+	if bottom := lastLine(); !strings.Contains(bottom, "enter stops") || !strings.Contains(bottom, "q quit") || strings.Contains(bottom, "refresh") {
 		t.Errorf("80 columns: %q", bottom)
 	}
 	h.send(tea.WindowSizeMsg{Width: 120, Height: 24})
@@ -733,7 +738,7 @@ func TestAWideWindowPutsTheRouteLineBesideTheList(t *testing.T) {
 	if !strings.Contains(row, "IC 3615 to Leuven") {
 		t.Errorf("the chosen journey's train is not beside it: %q", row)
 	}
-	h.wantOnScreen("│  Wetteren", "Change at Brussel-Zuid", "enter all stops")
+	h.wantOnScreen("│  Wetteren", "Change at Brussel-Zuid", "enter stops")
 	if hasRule(h.screen()) {
 		t.Errorf("a wide window still stacks the panes:\n%s", h.screen())
 	}
@@ -759,6 +764,53 @@ func TestANarrowWindowPutsTheRouteLineUnderTheList(t *testing.T) {
 	}
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 16})
 	h.wantOnScreen("more lines; enter shows all stops", "Live NMBS data via iRail")
+}
+
+func manyJourneys(n int) irail.Trip {
+	trip := irail.Trip{Updated: at("16:36")}
+	for i := range n {
+		leaves := at("17:00").Add(time.Duration(i) * 30 * time.Minute)
+		trip.Journeys = append(trip.Journeys, irail.Journey{Legs: []irail.Leg{{
+			Train: fmt.Sprintf("IC %d", 100+i), Direction: "Aarlen",
+			Departure: irail.Stop{Station: "Gent-Sint-Pieters", Scheduled: leaves, Platform: "9"},
+			Arrival:   irail.Stop{Station: "Aarlen", Scheduled: leaves.Add(4 * time.Hour), Platform: "2"},
+		}}})
+	}
+	return trip
+}
+
+func TestTheChosenJourneyStaysInViewInALongList(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	trip := manyJourneys(10)
+	h.src.trip = &trip
+	h.press(letter('r'))
+	h.send(tea.WindowSizeMsg{Width: 130, Height: 12})
+
+	for range 8 {
+		h.press(down)
+	}
+
+	h.wantOnScreen("▸ 21:00", "IC 108 to Aarlen", "↑ ")
+}
+
+func TestAWideWindowKeepsAMissedChangeInTheList(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	trip := sampleTrip()
+	trip.Journeys[0].Legs[0].Arrival.Delay = 12 * time.Minute
+	h.src.trip = &trip
+	h.press(letter('r'))
+
+	h.send(tea.WindowSizeMsg{Width: 104, Height: 30})
+
+	h.wantOnScreen("change missed")
+}
+
+func TestATinyJourneysScreenKeepsItsStatusLine(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 8})
+
+	h.wantOnScreen("Live NMBS data via iRail")
 }
 
 func TestQuits(t *testing.T) {

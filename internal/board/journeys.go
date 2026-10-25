@@ -55,43 +55,40 @@ type JourneyLines struct {
 	Summaries []string
 	// Stops holds the indented stop and change lines of each journey.
 	Stops [][]string
-	// Legend explains the marks of all summaries and stops, and Legends[i]
-	// those of the summaries and journey i's stops, for a caller that
-	// shows the stops of one journey only. SummaryLegend explains the
-	// summaries alone, to join with the legend of what is drawn beside.
-	Legend        []string
-	Legends       [][]string
-	SummaryLegend Legend
+	// Legend explains the marks of all summaries and stops.
+	Legend []string
 }
 
 func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
+	summaries, all := JourneySummaries(list, o)
+	l := JourneyLines{Summaries: summaries}
 	v := newJourneyView(list, o)
-	var l JourneyLines
-	var summaries [][]string
-	changes := make([][]irail.Change, len(list))
-	for i, j := range list {
-		changes[i] = j.Changes()
-		summaries = append(summaries, v.summary(j, changes[i]))
-	}
-	summaryNotes, all := v.notes, slices.Clone(v.notes)
-	l.SummaryLegend = Legend{slices.Clone(summaryNotes)}
-	for i, j := range list {
-		v.notes = slices.Clone(summaryNotes)
+	for _, j := range list {
+		v.notes = nil
 		var stops []string
-		for _, line := range v.stops(j, changes[i]) {
+		for _, line := range v.stops(j, j.Changes()) {
 			stops = append(stops, clip(line, o.Width))
 		}
 		l.Stops = append(l.Stops, stops)
-		l.Legends = append(l.Legends, v.legendLines(v.notes))
-		for _, n := range v.notes {
-			all = addNote(all, &n)
-		}
+		all = all.With(Legend{v.notes})
 	}
-	for _, line := range alignSummaries(summaries) {
-		l.Summaries = append(l.Summaries, clip(line, o.Width-len(indent)))
-	}
-	l.Legend = v.legendLines(all)
+	l.Legend = all.Lines(o.Width)
 	return l
+}
+
+// JourneySummaries draws a summary line per journey, as LayOutJourneys
+// does, for a caller that draws no stop lines, with their legend.
+func JourneySummaries(list []irail.Journey, o JourneyOptions) ([]string, Legend) {
+	v := newJourneyView(list, o)
+	var parts [][]string
+	for _, j := range list {
+		parts = append(parts, v.summary(j, j.Changes()))
+	}
+	var summaries []string
+	for _, line := range alignSummaries(parts) {
+		summaries = append(summaries, clip(line, o.Width-len(indent)))
+	}
+	return summaries, Legend{v.notes}
 }
 
 type journeyView struct {
@@ -128,14 +125,6 @@ func (v *journeyView) fit(delay time.Duration, station string, platform cell, ca
 // beforeStation is how far in the station column starts.
 func (v *journeyView) beforeStation() int {
 	return len(stopIndent) + len("15:04") + lipgloss.Width(v.delayColumn("")) + len(gap)
-}
-
-func (v *journeyView) legendLines(notes []note) []string {
-	var lines []string
-	for _, line := range legend(noteTexts(slices.Clone(notes)), v.o.Width) {
-		lines = append(lines, clip(indent+line, v.o.Width))
-	}
-	return lines
 }
 
 // summary is the parts of a journey's summary line: its times, how long it

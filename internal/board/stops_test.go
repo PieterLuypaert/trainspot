@@ -215,7 +215,7 @@ func TestTheRouteLineKeepsWhatMattersOnANarrowTerminal(t *testing.T) {
 		if strings.Contains(text, "platform 4") != strings.Contains(text, "platform 11") {
 			t.Errorf("width %d mixes the long and short platform:\n%s", width, text)
 		}
-		if !strings.Contains(plainLines(legend.Lines(80)), "4 ! = platform changed") {
+		if !strings.Contains(plainLines(legend.Lines(width)), "4 ! = platform changed") {
 			t.Errorf("width %d: legend = %q", width, plainLines(legend.Lines(80)))
 		}
 	}

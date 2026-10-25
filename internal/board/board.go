@@ -4,6 +4,7 @@ package board
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -206,6 +207,25 @@ func (l Legend) With(other Legend) Legend {
 		notes = addNote(notes, &n)
 	}
 	return Legend{notes}
+}
+
+// In keeps the notes for the marks that show in lines, so the legend of a
+// part cut short explains only what is on screen.
+func (l Legend) In(lines []string) Legend {
+	text := ansi.Strip(strings.Join(lines, "\n"))
+	var kept []note
+	for _, n := range l.notes {
+		if markPattern[n.kind].MatchString(text) {
+			kept = append(kept, n)
+		}
+	}
+	return Legend{kept}
+}
+
+// markPattern finds the mark a note explains in drawn text.
+var markPattern = map[int]*regexp.Regexp{
+	lateKind:     regexp.MustCompile(`\+\d+`),
+	platformKind: regexp.MustCompile(`\S+ !`),
 }
 
 // Lines lays the legend out for the width, each line indented.
