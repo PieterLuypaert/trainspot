@@ -133,8 +133,13 @@ func parseArgs(args []string) (options, error) {
 		from = append(from, rest...)
 	}
 	o.query, o.to = strings.Join(from, " "), strings.Join(to, " ")
-	if hasTo && o.to == "" {
+	switch {
+	case o.help || o.version:
+		return o, nil
+	case hasTo && o.to == "":
 		return o, errors.New("--to needs the name of a station")
+	case hasTo && o.query == "":
+		return o, fmt.Errorf("put the station the journey starts from before --to, as in: trainspot gent --to %s", o.to)
 	}
 	if !slices.Contains(irail.Languages, o.lang) {
 		return o, fmt.Errorf("--lang takes nl, fr, en or de, not %q", o.lang)

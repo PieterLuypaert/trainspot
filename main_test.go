@@ -260,6 +260,8 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"gent", "--to", "brussel", "zuid", "--lang", "fr"}, options{query: "gent", to: "brussel zuid", lang: "fr"}, ""},
 		{[]string{"--no-color", "luik", "-to=namen", "--", "-x"}, options{query: "luik", to: "namen -x", lang: "nl", noColor: true}, ""},
 		{[]string{"gent", "--to"}, options{}, "--to needs the name of a station"},
+		{[]string{"gent", "--to", "--help"}, options{query: "gent", lang: "nl", help: true}, ""},
+		{[]string{"--to", "brugge"}, options{}, "put the station the journey starts from before --to, as in: trainspot gent --to brugge"},
 		{[]string{"-h"}, options{lang: "nl", help: true}, ""},
 		{[]string{"--version"}, options{lang: "nl", version: true}, ""},
 		{[]string{"gent", "--lang", "es"}, options{}, `--lang takes nl, fr, en or de, not "es"`},
