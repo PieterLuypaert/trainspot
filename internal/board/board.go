@@ -51,18 +51,25 @@ var (
 )
 
 func Render(b irail.Liveboard, o Options) string {
-	var out strings.Builder
-	out.WriteString(boardHeader(o) + "\n\n")
+	rows, legendLines := DepartureLines(b, o)
+	lines := append([]string{boardHeader(o), ""}, rows...)
+	lines = append(append(lines, ""), legendLines...)
+	lines = append(lines, Footer(b.Updated, o.Location))
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// DepartureLines draws the board without its header and source line, for
+// a caller that frames it: the rows under their column titles, or a note
+// that nothing leaves, and the legend. Every line is indented.
+func DepartureLines(b irail.Liveboard, o Options) (rows, legendLines []string) {
 	if len(b.Departures) == 0 {
-		out.WriteString(indent + "No departures are listed right now.\n")
+		return []string{indent + "No departures are listed right now."}, nil
 	}
 	rows, notes := departures(b.Departures, o)
-	out.WriteString(rows + "\n")
 	for _, line := range legend(notes, o.Width) {
-		out.WriteString(indent + line + "\n")
+		legendLines = append(legendLines, indent+line)
 	}
-	out.WriteString(footer(b.Updated, o.Location) + "\n")
-	return out.String()
+	return rows, legendLines
 }
 
 // boardHeader gives up the clock, then the local name, before it shortens
@@ -105,8 +112,8 @@ func legend(notes []string, width int) []string {
 	return []string{line}
 }
 
-// footer says where the data comes from and when iRail worked it out.
-func footer(updated time.Time, loc *time.Location) string {
+// Footer says where the data comes from and when iRail worked it out.
+func Footer(updated time.Time, loc *time.Location) string {
 	return indent + faint.Render("Live NMBS data via iRail, updated "+clock(updated, loc))
 }
 
@@ -249,29 +256,25 @@ var layouts = [][]column{
 
 // departures draws the rows and returns the legend notes for the marks
 // that ended up in them.
-func departures(list []irail.Departure, o Options) (string, []string) {
-	if len(list) == 0 {
-		return "", nil
-	}
+func departures(list []irail.Departure, o Options) ([]string, []string) {
 	columns, widths := fit(list, o)
-	var out strings.Builder
-	out.WriteString(indent)
+	titles := indent
 	for i, c := range columns {
-		out.WriteString(pad(faint.Render(c.title), widths[i], i == len(columns)-1))
+		titles += pad(faint.Render(c.title), widths[i], i == len(columns)-1)
 	}
-	out.WriteString("\n")
+	rows := []string{titles}
 	var notes []note
 	for _, d := range list {
-		out.WriteString(indent)
+		row := indent
 		for i, c := range columns {
 			cl := c.cell(d, o)
 			text := ansi.Truncate(cl.text, widths[i], "…")
-			out.WriteString(pad(cl.style.Render(text), widths[i], i == len(columns)-1))
+			row += pad(cl.style.Render(text), widths[i], i == len(columns)-1)
 			notes = addNote(notes, cl.note)
 		}
-		out.WriteString("\n")
+		rows = append(rows, row)
 	}
-	return out.String(), noteTexts(notes)
+	return rows, noteTexts(notes)
 }
 
 // fit picks the widest layout that fits o.Width. Optional columns go

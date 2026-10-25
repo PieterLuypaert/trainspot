@@ -32,26 +32,48 @@ const (
 // Journeys lists each journey as a summary line with its stops and changes
 // below it.
 func Journeys(list []irail.Journey, o JourneyOptions) string {
-	var out strings.Builder
 	title := bold.Render(o.From) + " → " + bold.Render(o.To)
-	out.WriteString(header([]string{title}, o.Now.In(o.Location), o.Width) + "\n\n")
+	lines := []string{header([]string{title}, o.Now.In(o.Location), o.Width), ""}
 	if len(list) == 0 {
-		out.WriteString(indent + "No journeys found.\n\n")
+		lines = append(lines, indent+"No journeys found.", "")
 	}
+	l := LayOutJourneys(list, o)
+	for i, summary := range l.Summaries {
+		lines = append(append(lines, indent+summary), l.Stops[i]...)
+		lines = append(lines, "")
+	}
+	lines = append(lines, l.Legend...)
+	lines = append(lines, clip(Footer(o.Updated, o.Location), o.Width))
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// JourneyLines are the journeys drawn line by line, for a caller that lays
+// them out itself.
+type JourneyLines struct {
+	// Summaries holds a line per journey without indent, short enough for
+	// a two-column marker in front of it.
+	Summaries []string
+	// Stops holds the indented stop and change lines of each journey.
+	Stops  [][]string
+	Legend []string
+}
+
+func LayOutJourneys(list []irail.Journey, o JourneyOptions) JourneyLines {
 	v := newJourneyView(list, o)
+	var l JourneyLines
 	for _, j := range list {
 		changes := j.Changes()
-		out.WriteString(clip(indent+v.summary(j, changes), o.Width) + "\n")
+		l.Summaries = append(l.Summaries, clip(v.summary(j, changes), o.Width-len(indent)))
+		var stops []string
 		for _, line := range v.stops(j, changes) {
-			out.WriteString(clip(line, o.Width) + "\n")
+			stops = append(stops, clip(line, o.Width))
 		}
-		out.WriteString("\n")
+		l.Stops = append(l.Stops, stops)
 	}
 	for _, line := range legend(noteTexts(v.notes), o.Width) {
-		out.WriteString(clip(indent+line, o.Width) + "\n")
+		l.Legend = append(l.Legend, clip(indent+line, o.Width))
 	}
-	out.WriteString(clip(footer(o.Updated, o.Location), o.Width) + "\n")
-	return out.String()
+	return l
 }
 
 type journeyView struct {
