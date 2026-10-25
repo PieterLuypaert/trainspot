@@ -129,11 +129,20 @@ func (m Model) formLines(width int) []string {
 	}
 	switch {
 	case m.note != "":
-		body = append(body, "", indent+alarm.Render(m.note))
+		body = append(append(body, ""), wrap(m.note, width, alarm)...)
 	case m.fields[m.focus].text == "":
-		body = append(body, "", indent+faint.Render("Type a station's name in any language, such as gent, liège or brussels airport."))
+		body = append(append(body, ""), wrap("Type a station's name in any language, such as gent, liège or brussels airport.", width, faint)...)
 	}
 	return body
+}
+
+// wrap breaks text into indented lines in style that fit width.
+func wrap(text string, width int, style lipgloss.Style) []string {
+	var lines []string
+	for _, line := range strings.Split(ansi.Wordwrap(text, max(1, width-len(indent)), ""), "\n") {
+		lines = append(lines, indent+style.Render(line))
+	}
+	return lines
 }
 
 func (m Model) fieldLine(i int, f field) string {

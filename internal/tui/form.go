@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"context"
+	"fmt"
 	"strconv"
 
 	tea "charm.land/bubbletea/v2"
@@ -54,34 +54,43 @@ func (m Model) pickRecent(n int) (tea.Model, tea.Cmd) {
 	return m.startTrip(t.from, t.to)
 }
 
-// previewFrom fetches the board of the station in the From field, unless
-// the one on hand is that station's and fresh.
-func (m Model) previewFrom() (tea.Model, tea.Cmd) {
+// previewFrom starts fetching the board of the station in the From field
+// when the one on hand is another station's or stale, unless that fetch is
+// on its way or failed less than a minute ago; the refresh tries again.
+// Update calls it after everything that happens on the form, so a new
+// station is looked up whichever way it got into the field.
+func (m *Model) previewFrom() tea.Cmd {
 	from := m.fields[0].station
-	if from == nil || (m.previewID == from.ID && !m.stale(m.previewAt)) {
-		return m, nil
+	switch {
+	case from == nil, from.ID == m.previewID && !m.stale(m.previewAt):
+		return nil
+	case from.ID == m.previewAsked && (m.loading() || m.previewErr != nil && !m.stale(m.previewAskedAt)):
+		return nil
 	}
-	fetch := m.fetchPreview()
-	return m, fetch
+	return m.fetchPreview()
 }
 
 func (m *Model) fetchPreview() tea.Cmd {
-	id, source, stationID, lang := m.begin(), m.cfg.Source, m.fields[0].station.ID, m.cfg.Lang
-	m.previewID = stationID
-	return func() tea.Msg {
-		board, err := source.Liveboard(context.Background(), stationID, lang)
-		return previewMsg{id: id, board: board, err: err}
-	}
+	m.previewAsked, m.previewAskedAt = m.fields[0].station.ID, m.cfg.Now()
+	return m.fetchLiveboard(m.previewAsked)
 }
 
-func (m *Model) gotPreview(msg previewMsg) {
+// gotPreview takes the board the form waits for. A failed refresh keeps
+// the board already shown.
+func (m *Model) gotPreview(msg boardMsg) {
 	if msg.id != m.waiting {
 		return
 	}
-	m.waiting, m.err = 0, msg.err
+	m.waiting, m.previewErr = 0, msg.err
 	if msg.err == nil {
-		m.preview, m.previewAt = msg.board, m.cfg.Now()
+		m.preview, m.previewID, m.previewAt = msg.board, msg.station, m.cfg.Now()
 	}
+}
+
+// previewFailed tells whether the last fetch of the board of the station in
+// the From field failed, with none on its way.
+func (m Model) previewFailed() bool {
+	return m.previewErr != nil && !m.loading() && m.fields[0].station != nil && m.fields[0].station.ID == m.previewAsked
 }
 
 // planningSide lists the recent trips, numbered to pick, and the next
@@ -99,19 +108,50 @@ func (m Model) planningSide(width, rows int) []string {
 }
 
 // previewLines are the next departures from the station in the From
-// field, or what stands in their place.
+// field, with their legend and when they came, or what stands in their
+// place.
 func (m Model) previewLines(width, rows int) []string {
 	from := m.fields[0].station
 	switch {
 	case from == nil:
-		return []string{indent + faint.Render("Pick where you leave from to see its next trains.")}
-	case m.previewID != from.ID || m.preview.Updated.IsZero():
-		if m.err != nil {
-			return []string{indent + alarm.Render("Could not get the departures: "+m.err.Error())}
-		}
-		return []string{indent + faint.Render("Looking up departures from "+from.Name(m.cfg.Lang)+"…")}
+		return wrap("Pick where you leave from to see its next trains.", width, faint)
+	case m.previewID != from.ID && m.previewFailed():
+		return wrap("Could not get the departures: "+m.previewErr.Error(), width, alarm)
+	case m.previewID != from.ID:
+		return wrap("Looking up departures from "+from.Name(m.cfg.Lang)+"…", width, faint)
 	}
-	departures, _ := board.DepartureLines(m.preview, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
-	title := indent + bold.Render("Next from "+from.Name(m.cfg.Lang))
-	return append([]string{title}, cut(departures, rows-1, "a taller window shows them")...)
+	// The title, the blank line over the legend and the status line take
+	// three rows.
+	departures, legend := m.previewBoard(width, rows-3)
+	lines := append([]string{indent + bold.Render("Next from "+from.Name(m.cfg.Lang))}, departures...)
+	return append(append(append(lines, ""), legend...), m.previewStatus())
+}
+
+// previewBoard draws as many of the next departures as fit in rows, with
+// the legend for those alone, so it explains only what shows.
+func (m Model) previewBoard(width, rows int) (lines, legend []string) {
+	o := board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}
+	shown := m.preview
+	lines, legend = board.DepartureLines(shown, o)
+	if len(lines)+len(legend) <= rows || len(shown.Departures) <= 1 {
+		return lines, legend
+	}
+	// The column titles and the line about the rest take two rows. Fewer
+	// departures never need more legend than all of them.
+	shown.Departures = shown.Departures[:max(1, rows-2-len(legend))]
+	lines, legend = board.DepartureLines(shown, o)
+	more := len(m.preview.Departures) - len(shown.Departures)
+	return append(lines, indent+faint.Render(fmt.Sprintf("… %d more; a taller window shows them", more))), legend
+}
+
+// previewStatus says when the departures beside the form came, or that a
+// refresh is on its way or failed while they stay on screen.
+func (m Model) previewStatus() string {
+	switch {
+	case m.loading() && m.previewAsked == m.previewID:
+		return indent + faint.Render("updating…")
+	case m.previewFailed():
+		return indent + alarm.Render("could not refresh: "+m.previewErr.Error())
+	}
+	return board.Footer(m.preview.Updated, m.cfg.Location)
 }

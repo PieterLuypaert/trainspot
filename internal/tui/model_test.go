@@ -75,7 +75,9 @@ type fakeSource struct {
 	// departures is how many departures the board lists; one when zero.
 	departures int
 	// trip, when set, is the answer for journeys instead of sampleTrip.
-	trip      *irail.Trip
+	trip *irail.Trip
+	// board, when set, is the answer for every board.
+	board     *irail.Liveboard
 	routeErrs map[string]error
 }
 
@@ -98,6 +100,9 @@ func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Li
 	f.boards = append(f.boards, stationID)
 	if f.boardErr != nil {
 		return irail.Liveboard{}, f.boardErr
+	}
+	if f.board != nil {
+		return *f.board, nil
 	}
 	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
 	for i := range max(1, f.departures) {
@@ -874,6 +879,122 @@ func TestAWideFormHasItsSidePaneBesideIt(t *testing.T) {
 	h.wantOnScreen("Next from Gent-Sint-Pieters")
 }
 
+// sendOnly updates the model without running the commands it returns, as
+// while their answers are on their way.
+func (h *harness) sendOnly(msg tea.Msg) tea.Cmd {
+	h.t.Helper()
+	next, cmd := h.m.Update(msg)
+	h.m = next.(Model)
+	return cmd
+}
+
+func (h *harness) answer(cmds ...tea.Cmd) {
+	h.t.Helper()
+	for _, cmd := range cmds {
+		for _, msg := range run(h.t, cmd) {
+			if _, tick := msg.(tickMsg); !tick {
+				h.send(msg)
+			}
+		}
+	}
+}
+
+var shiftTab = tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
+
+func TestANewFromStationNeverShowsTheOldStationsBoard(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("gent sint")
+	h.press(enter, shiftTab, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("brussel z")
+
+	fetch := h.sendOnly(enter)
+
+	h.wantOnScreen("Looking up departures from Brussel-Zuid…")
+	if strings.Contains(h.screen(), "IC 535") {
+		t.Errorf("Gent's board shows while Brussel-Zuid's is on its way:\n%s", h.screen())
+	}
+	h.answer(fetch)
+	h.wantOnScreen("Next from Brussel-Zuid", "IC 535")
+}
+
+func TestTabbingWhileTheBoardIsOnItsWayAsksOnce(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("gent sint")
+
+	cmds := []tea.Cmd{h.sendOnly(enter)}
+	for range 4 {
+		cmds = append(cmds, h.sendOnly(tab))
+	}
+	h.answer(cmds...)
+
+	if len(h.src.boards) != 1 {
+		t.Errorf("asked for %d boards, want 1: %v", len(h.src.boards), h.src.boards)
+	}
+	h.wantOnScreen("Next from Gent-Sint-Pieters")
+}
+
+func TestTheSameStationNoteStillLooksUpTheNewFromStation(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("brussel z")
+	h.press(enter)
+	h.typeText("gent sint")
+	h.press(tab, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("gent sint")
+
+	h.press(enter)
+
+	h.wantOnScreen("From and To are the same station", "Next from Gent-Sint-Pieters")
+	if got := strings.Join(h.src.boards, " "); got != brusselID+" "+gentID {
+		t.Errorf("boards asked for %s", got)
+	}
+}
+
+func TestAFailedRefreshBesideTheFormSaysSo(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.typeText("gent sint")
+	h.press(enter)
+	h.wantOnScreen("Live NMBS data via iRail, updated 16:36")
+
+	h.src.boardErr = errors.New("no network")
+	h.now = h.now.Add(2 * time.Minute)
+	h.send(tickMsg(h.now))
+
+	h.wantOnScreen("could not refresh: no network", "IC 535")
+}
+
+func TestAFailedBoardBesideTheFormIsNotAskedForOnEveryKey(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.src.boardErr = errors.New("no network")
+	h.typeText("gent sint")
+
+	h.press(enter, tab, tab)
+
+	h.wantOnScreen("Could not get the departures: no network")
+	if len(h.src.boards) != 1 {
+		t.Errorf("asked for %d boards, want 1", len(h.src.boards))
+	}
+}
+
+func TestTheBoardBesideTheFormExplainsOnlyWhatShows(t *testing.T) {
+	h := newHarness(t, "", "")
+	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	for i := range 30 {
+		board.Departures = append(board.Departures, irail.Departure{
+			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Platform: "11", Train: fmt.Sprintf("IC %d", 535+i),
+		})
+	}
+	board.Departures[29].Delay = 7 * time.Minute
+	h.src.board = &board
+	h.typeText("gent sint")
+
+	h.press(enter)
+
+	h.wantOnScreen("IC 535", "more; a taller window shows them", "Live NMBS data via iRail")
+	if strings.Contains(h.screen(), "min late") {
+		t.Errorf("the legend explains a delay that does not show:\n%s", h.screen())
+	}
+}
+
 func TestTheRecentTripHintMakesWayAndHidesWhileTyping(t *testing.T) {
 	h := twoRecentTrips(t)
 
@@ -900,6 +1021,14 @@ func TestARecentTripFromAStationToItselfIsLeftOut(t *testing.T) {
 	if strings.Contains(h.screen(), "Gent-Sint-Pieters → Gent-Sint-Pieters") {
 		t.Errorf("a trip from a station to itself is listed:\n%s", h.screen())
 	}
+}
+
+func TestAWideFormWrapsItsHint(t *testing.T) {
+	h := newHarness(t, "", "")
+
+	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
+
+	h.wantOnScreen("Type a station's name", "brussels airport.")
 }
 
 func TestQuits(t *testing.T) {

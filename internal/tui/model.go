@@ -111,11 +111,16 @@ type Model struct {
 	// to pick, with their stations.
 	recent Trips
 	picks  []recentTrip
-	// preview is the board of the station in the From field, shown beside
-	// the form, for the station previewID; previewAt is when it came.
+	// preview is the board of the station previewID, shown beside the form
+	// while that station is in the From field; previewAt is when it came.
 	preview   irail.Liveboard
 	previewID string
 	previewAt time.Time
+	// previewAsked is the station whose board the form last asked for, and
+	// when; previewErr is what went wrong with that fetch.
+	previewAsked   string
+	previewAskedAt time.Time
+	previewErr     error
 }
 
 type tripMsg struct {
@@ -124,19 +129,15 @@ type tripMsg struct {
 	err  error
 }
 
+// boardMsg is the board of a station, for the departures or for the form.
 type boardMsg struct {
-	id    int
-	board irail.Liveboard
-	err   error
+	id      int
+	station string
+	board   irail.Liveboard
+	err     error
 }
 
 type tickMsg time.Time
-
-type previewMsg struct {
-	id    int
-	board irail.Liveboard
-	err   error
-}
 
 func New(cfg Config) Model {
 	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}}
@@ -186,6 +187,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg, tea.WindowSizeMsg, tripMsg, boardMsg, routeMsg, followMsg:
 		m.keepInView()
 	}
+	if m.screen == planning {
+		if preview := m.previewFrom(); preview != nil {
+			cmd = tea.Batch(cmd, preview)
+		}
+	}
 	return m, cmd
 }
 
@@ -212,11 +218,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetch
 		}
 	case boardMsg:
-		m.gotBoard(msg)
+		if m.screen == planning {
+			m.gotPreview(msg)
+		} else {
+			m.gotBoard(msg)
+		}
 	case routeMsg:
 		m.gotRoute(msg)
-	case previewMsg:
-		m.gotPreview(msg)
 	case followMsg:
 		m.gotFollow(msg)
 	case tea.PasteMsg:
@@ -351,7 +359,7 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 	if !search || from == nil || to == nil {
 		m.focus = 1 - m.focus
 		m.suggest()
-		return m.previewFrom()
+		return m, nil
 	}
 	if from.ID == to.ID {
 		m.note = "From and To are the same station; pick two different ones"
@@ -411,7 +419,7 @@ func (m Model) toPlanning() (tea.Model, tea.Cmd) {
 	m.screen, m.waiting, m.err = planning, 0, nil
 	m.focus = 1
 	m.suggest()
-	return m.previewFrom()
+	return m, nil
 }
 
 func (m Model) journeysKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -497,10 +505,14 @@ func (m *Model) fetchTrip() tea.Cmd {
 }
 
 func (m *Model) fetchBoard() tea.Cmd {
-	id, source, stationID, lang := m.begin(), m.cfg.Source, m.from.ID, m.cfg.Lang
+	return m.fetchLiveboard(m.from.ID)
+}
+
+func (m *Model) fetchLiveboard(stationID string) tea.Cmd {
+	id, source, lang := m.begin(), m.cfg.Source, m.cfg.Lang
 	return func() tea.Msg {
 		board, err := source.Liveboard(context.Background(), stationID, lang)
-		return boardMsg{id: id, board: board, err: err}
+		return boardMsg{id: id, station: stationID, board: board, err: err}
 	}
 }
 
