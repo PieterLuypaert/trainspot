@@ -73,10 +73,7 @@ func (m Model) scrollKey(k tea.KeyPressMsg) Model {
 
 func (m *Model) fetchRoute() tea.Cmd {
 	id, source, d, lang, loc := m.begin(), m.cfg.Source, m.routeOf, m.cfg.Lang, m.cfg.Location
-	station := m.board.Station
-	if station == "" {
-		station = m.from.Name(lang)
-	}
+	station := m.boardStation()
 	return func() tea.Msg {
 		route, err := source.RouteThrough(context.Background(), d.Vehicle, station, d.Scheduled.In(loc), lang)
 		return routeMsg{id: id, route: route, err: err}

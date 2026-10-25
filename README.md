@@ -38,9 +38,11 @@ where you are going, and it suggests stations as you type, in any of the four la
 Pick one with the arrow keys and enter, or tab to the other field. Once both are set,
 enter shows the next journeys, with the stops of the one you choose below them.
 
-On the journeys, enter shows every stop of the chosen journey: per train where it
-leaves, each station on the way and where it arrives, with a stop it skips or where the
-train now ends marked, and "train is here" or "next stop" once a train is on its way.
+On the journeys, enter shows every stop of the chosen journey down a route line: per
+train how long it rides and how often it stops, a dot where you get on and off with its
+platform, a bar for each station on the way and a diamond where the train is now, and
+for each change the time you have and the platforms to walk between. A stop the train
+skips, or where it now ends, is marked.
 When the journey's first train has left, trainspot keeps following its trains live.
 `d` shows the departure board of where the trip starts; there, choose a train with the
 arrow keys and press enter to see its whole run and where it is now. `s` swaps the two

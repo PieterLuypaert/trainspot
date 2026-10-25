@@ -160,6 +160,42 @@ func addNote(notes []note, n *note) []note {
 	return append(notes, *n)
 }
 
+// marks lays out the delay column of a view and collects the notes its
+// legend explains, for the journey list and the route line alike.
+type marks struct {
+	// delay is the width of the delay column.
+	delay int
+	notes []note
+}
+
+func (k *marks) fitDelay(delay time.Duration) {
+	k.delay = max(k.delay, lipgloss.Width(delayText(delay)))
+}
+
+// lateMark is the coloured +N of a delay, or nothing on time, with its
+// note for the legend.
+func (k *marks) lateMark(delay time.Duration) string {
+	text := delayText(delay)
+	if text == "" {
+		return ""
+	}
+	k.note(lateNote(minutes(delay)))
+	return delayStyle(delay).Render(text)
+}
+
+// delayColumn pads a delay mark to the column, which takes no room at all
+// when nothing is late.
+func (k *marks) delayColumn(mark string) string {
+	if k.delay == 0 {
+		return ""
+	}
+	return " " + mark + strings.Repeat(" ", k.delay-lipgloss.Width(mark))
+}
+
+func (k *marks) note(n *note) {
+	k.notes = addNote(k.notes, n)
+}
+
 func noteTexts(notes []note) []string {
 	slices.SortFunc(notes, func(a, b note) int { return a.kind - b.kind })
 	var texts []string
