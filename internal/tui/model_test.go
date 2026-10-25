@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -505,14 +506,83 @@ func TestScrollsThroughALongListOfStops(t *testing.T) {
 	}
 }
 
-func TestGoesBackWhenTheChosenJourneyLeaves(t *testing.T) {
+func TestKeepsTheStopsOfAJourneyWhoseTrainHasLeft(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.press(enter)
 
 	h.src.firstGone = true
 	h.press(letter('r'))
 
-	h.wantOnScreen("▸ 18:46 → 22:10", "That journey is no longer listed")
+	h.wantOnScreen("17:13 → 21:22 · Gent-Sint-Pieters → Aarlen", "IC 3615 to Leuven", "Its train has left")
+	h.press(esc)
+	h.wantOnScreen("▸ 18:46 → 22:10", "Live NMBS data via iRail, updated 16:36")
+	if strings.Contains(h.screen(), "Its train has left") {
+		t.Errorf("the note outlives the stops screen:\n%s", h.screen())
+	}
+}
+
+func TestScrollStaysWithinTheListWhenTheWindowGrows(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 14})
+	h.press(enter)
+	for range 40 {
+		h.press(down)
+	}
+
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 20})
+	before := h.screen()
+	h.press(tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if h.screen() == before {
+		t.Errorf("up did nothing right after the window grew:\n%s", h.screen())
+	}
+}
+
+func TestNoScrollingWhenTheStopsFitExactly(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(enter)
+	main, tail, _ := h.m.stopsView()
+	h.send(tea.WindowSizeMsg{Width: 90, Height: len(main) + len(tail) + 2})
+
+	before := h.screen()
+	h.press(down)
+
+	if h.screen() != before || h.m.scroll != 0 {
+		t.Errorf("down scrolled a list that fits (scroll %d):\n%s", h.m.scroll, h.screen())
+	}
+}
+
+func TestATinyWindowKeepsTheStatusLine(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.press(enter)
+
+	h.send(tea.WindowSizeMsg{Width: 60, Height: 6})
+
+	h.wantOnScreen("Live NMBS data via iRail")
+}
+
+func TestPageDownMovesAWholePage(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 14})
+	h.press(enter)
+	_, _, shown := h.m.stopsView()
+
+	h.press(tea.KeyPressMsg{Code: tea.KeyPgDown})
+
+	h.wantOnScreen(fmt.Sprintf("↑ %d more", shown))
+}
+
+func TestTheStopsTitleNamesTheDayAndACancellation(t *testing.T) {
+	trip := sampleTrip()
+	j := &trip.Journeys[0]
+	j.Legs[0].Departure.Scheduled = j.Legs[0].Departure.Scheduled.AddDate(0, 0, 1)
+	j.Legs[1].Arrival.Cancelled = true
+	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID})
+	m.trip, m.screen = trip, stops
+
+	if title := strings.Split(ansi.Strip(m.View().Content), "\n")[0]; !strings.Contains(title, "Mon 26 Oct 17:13 → 21:22 cancelled") {
+		t.Errorf("title = %q", title)
+	}
 }
 
 func TestKeyHintsMakeWayOnANarrowTerminal(t *testing.T) {

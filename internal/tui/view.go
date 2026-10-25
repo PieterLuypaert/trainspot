@@ -62,8 +62,8 @@ func (m Model) render() string {
 		main, tail := m.departuresBody(inner)
 		return frame(m.departuresTitle(), clock, fitBody(main, tail, room), departureKeys, width, height)
 	case stops:
-		main, tail := m.stopsBody(inner)
-		return frame(m.stopsTitle(), clock, scrollBody(main, tail, room, m.scroll), stopKeys, width, height)
+		main, tail, shown := m.stopsView()
+		return frame(m.stopsTitle(), clock, scrollBody(main, tail, shown, m.scroll), stopKeys, width, height)
 	}
 	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
 }
@@ -80,18 +80,18 @@ func fitBody(main, tail []string, room int) []string {
 }
 
 var (
-	journeyKeys = []key{{"↑↓", "choose", false}, {"enter", "stops", false}, {"d", "departures", false}, {"e", "edit", false},
-		{"s", "swap", false}, {"r", "refresh", true}, {"q", "quit", false}}
-	departureKeys = []key{{"esc", "journeys", false}, {"e", "edit", false}, {"r", "refresh", true}, {"q", "quit", false}}
-	stopKeys      = []key{{"↑↓", "scroll", false}, {"esc", "journeys", false}, {"r", "refresh", true}, {"q", "quit", false}}
+	journeyKeys = []key{{name: "↑↓", does: "choose"}, {name: "enter", does: "stops"}, {name: "d", does: "departures"},
+		{name: "e", does: "edit"}, {name: "s", does: "swap"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
+	departureKeys = []key{{name: "esc", does: "journeys"}, {name: "e", does: "edit"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
+	stopKeys      = []key{{name: "↑↓", does: "scroll"}, {name: "esc", does: "journeys"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
 )
 
 func (m Model) planningKeys() []key {
-	back := key{"esc", "quit", false}
+	back := key{name: "esc", does: "quit"}
 	if m.hasTrip() {
-		back = key{"esc", "back", false}
+		back = key{name: "esc", does: "back"}
 	}
-	return []key{{"tab", "next field", false}, {"↑↓", "choose", false}, {"enter", "search", false}, back}
+	return []key{{name: "tab", does: "next field"}, {name: "↑↓", does: "choose"}, {name: "enter", does: "search"}, back}
 }
 
 func (m Model) tripTitle() string {
@@ -287,29 +287,50 @@ func hintText(keys []key) string {
 	return strings.Join(hints, faint.Render(" · "))
 }
 
+// stopsTitle gives the journey's times, its day when it does not leave
+// today and whether it is cancelled, as its summary line does.
 func (m Model) stopsTitle() string {
-	j := m.trip.Journeys[m.selected]
-	times := bold.Render(j.Departure().Scheduled.In(m.cfg.Location).Format("15:04")) + " → " +
-		bold.Render(j.Arrival().Scheduled.In(m.cfg.Location).Format("15:04"))
-	return times + faint.Render(" · ") + m.tripTitle()
+	j, loc := m.shownJourney(), m.cfg.Location
+	leaves := j.Departure().Scheduled.In(loc)
+	title := bold.Render(leaves.Format("15:04")) + " → " + bold.Render(j.Arrival().Scheduled.In(loc).Format("15:04"))
+	if leaves.Format("2006-01-02") != m.cfg.Now().In(loc).Format("2006-01-02") {
+		title = faint.Render(leaves.Format("Mon 2 Jan")) + " " + title
+	}
+	if j.Cancelled() {
+		title += " " + alarm.Render("cancelled")
+	}
+	return title + faint.Render(" · ") + m.tripTitle()
 }
 
-// stopsBody returns every stop of the chosen journey, and the legend and
-// status line that must stay in view.
+// stopsBody returns every stop of the journey on screen, and the legend
+// and status line that must stay in view.
 func (m Model) stopsBody(width int) (main, tail []string) {
-	lines, legend := board.JourneyStops(m.trip.Journeys[m.selected], board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
-	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
+	lines, legend := board.JourneyStops(m.shownJourney(), board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	source := board.Footer(m.trip.Updated, m.cfg.Location)
+	if m.left != nil {
+		source = indent + faint.Render("Its train has left, so iRail no longer lists this journey; these stops stay as they were.")
+	}
+	tail = append(append([]string{""}, legend...), m.status(source))
 	return append([]string{""}, lines...), tail
 }
 
-// scrollBody shows the part of main that scroll points at, keeping the
-// tail in view, with a line that says how much lies above and below.
-func scrollBody(main, tail []string, room, scroll int) []string {
-	space := room - len(tail)
-	if len(main) <= space {
+// stopsView lays the stops screen out once for the window: the lines, the
+// part that stays in view, and how many lines show above that part.
+func (m Model) stopsView() (main, tail []string, shown int) {
+	width, height := m.size()
+	main, tail = m.stopsBody(width - 4)
+	if space := height - 2 - len(tail); len(main) > space {
+		return main, tail, max(0, space-1)
+	}
+	return main, tail, len(main)
+}
+
+// scrollBody shows the shown lines of main that scroll points at, keeping
+// the tail in view, with a line that says how much lies above and below.
+func scrollBody(main, tail []string, shown, scroll int) []string {
+	if shown >= len(main) {
 		return append(main, tail...)
 	}
-	shown := max(1, space-1)
 	scroll = max(0, min(scroll, len(main)-shown))
 	view := append([]string{}, main[scroll:scroll+shown]...)
 	var where []string
@@ -325,14 +346,12 @@ func scrollBody(main, tail []string, room, scroll int) []string {
 
 // maxScroll is how far the stops can scroll in the current window.
 func (m Model) maxScroll() int {
-	width, height := m.size()
-	main, tail := m.stopsBody(width - 4)
-	shown := max(1, height-2-len(tail)-1)
+	main, _, shown := m.stopsView()
 	return max(0, len(main)-shown)
 }
 
-// page is how many lines a page up or down moves.
+// page is how many lines a page up or down moves: as many as show.
 func (m Model) page() int {
-	_, height := m.size()
-	return max(1, height-10)
+	_, _, shown := m.stopsView()
+	return max(1, shown)
 }
