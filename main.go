@@ -245,16 +245,14 @@ func (a app) runScreen(ctx context.Context, o options) int {
 	if err != nil {
 		return a.fail(err)
 	}
-	last, err := tui.LoadLastTrip(a.tripPath)
+	recent, err := tui.LoadTrips(a.tripPath)
 	if err != nil {
-		fmt.Fprintf(a.errOut, "trainspot: starting without the last trip: %v\n", err)
+		fmt.Fprintf(a.errOut, "trainspot: starting without the recent trips: %v\n", err)
 	}
 	screen := tui.New(tui.Config{
 		Source: a.client, Stations: dir, Lang: o.lang, Location: brussels, Now: a.now,
-		From: last.From, To: last.To,
-		Remember: func(fromID, toID string) error {
-			return tui.SaveLastTrip(a.tripPath, tui.LastTrip{From: fromID, To: toID})
-		},
+		Recent:   recent,
+		Remember: func(trips tui.Trips) error { return tui.SaveTrips(a.tripPath, trips) },
 	})
 	var programOptions []tea.ProgramOption
 	if o.noColor {

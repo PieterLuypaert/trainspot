@@ -137,12 +137,16 @@ type harness struct {
 
 func newHarness(t *testing.T, from, to string) *harness {
 	h := &harness{t: t, src: &fakeSource{}, now: at("16:36")}
+	var recent Trips
+	if from != "" {
+		recent = Trips{{From: from, To: to}}
+	}
 	h.m = New(Config{
 		Source: h.src, Stations: testStations, Lang: "nl", Location: brussels,
-		Now:  func() time.Time { return h.now },
-		From: from, To: to,
-		Remember: func(fromID, toID string) error {
-			h.remembered = append(h.remembered, fromID+">"+toID)
+		Now:    func() time.Time { return h.now },
+		Recent: recent,
+		Remember: func(trips Trips) error {
+			h.remembered = append(h.remembered, trips[0].From+">"+trips[0].To)
 			return nil
 		},
 		TickEvery: time.Nanosecond,
@@ -382,7 +386,7 @@ func TestRefreshesEveryMinute(t *testing.T) {
 }
 
 func TestDropsAnAnswerForATripThatChanged(t *testing.T) {
-	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID, TickEvery: time.Nanosecond})
+	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, Recent: Trips{{From: gentID, To: aarlenID}}, TickEvery: time.Nanosecond})
 	first := m.Init()
 
 	next, _ := m.Update(letter('s'))
@@ -488,7 +492,7 @@ func TestKeepsTheLegendAndStatusInViewOnAFullBoard(t *testing.T) {
 
 func TestSaysWhenTheTripCannotBeRemembered(t *testing.T) {
 	h := newHarness(t, "", "")
-	h.m.cfg.Remember = func(string, string) error { return errors.New("disk full") }
+	h.m.cfg.Remember = func(Trips) error { return errors.New("disk full") }
 
 	h.typeText("gent sint")
 	h.press(enter)
@@ -606,7 +610,7 @@ func TestTheStopsTitleNamesTheDayAndACancellation(t *testing.T) {
 	j := &trip.Journeys[0]
 	j.Legs[0].Departure.Scheduled = j.Legs[0].Departure.Scheduled.AddDate(0, 0, 1)
 	j.Legs[1].Arrival.Cancelled = true
-	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, From: gentID, To: aarlenID})
+	m := New(Config{Source: &fakeSource{}, Stations: testStations, Lang: "nl", Location: brussels, Now: func() time.Time { return at("16:36") }, Recent: Trips{{From: gentID, To: aarlenID}}})
 	m.trip, m.screen = trip, stops
 
 	if title := strings.Split(ansi.Strip(m.View().Content), "\n")[0]; !strings.Contains(title, "Mon 26 Oct 17:13 → 21:22 cancelled") {
@@ -811,6 +815,63 @@ func TestATinyJourneysScreenKeepsItsStatusLine(t *testing.T) {
 	h.send(tea.WindowSizeMsg{Width: 80, Height: 8})
 
 	h.wantOnScreen("Live NMBS data via iRail")
+}
+
+func twoRecentTrips(t *testing.T) *harness {
+	h := newHarness(t, gentID, aarlenID)
+	h.m.recent = Trips{{From: gentID, To: aarlenID}, {From: brusselID, To: gentID}}
+	h.press(letter('e'))
+	return h
+}
+
+func TestTheFormListsTheRecentTripsToPickByNumber(t *testing.T) {
+	h := twoRecentTrips(t)
+	h.wantOnScreen("Recent trips", "1  Gent-Sint-Pieters → Aarlen", "2  Brussel-Zuid → Gent-Sint-Pieters", "1-2 recent trip")
+
+	h.press(letter('2'))
+
+	h.wantOnScreen("Brussel-Zuid → Gent-Sint-Pieters")
+	if last := h.remembered[len(h.remembered)-1]; last != brusselID+">"+gentID {
+		t.Errorf("remembered %s, want the picked trip first", last)
+	}
+}
+
+func TestANumberTypedIntoANameIsJustText(t *testing.T) {
+	h := twoRecentTrips(t)
+
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.typeText("a2")
+
+	h.wantOnScreen("To    a2▌")
+}
+
+func TestTheFormShowsTheNextDeparturesFromTheChosenStation(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.wantOnScreen("Pick where you leave from to see its next trains.")
+
+	h.typeText("gent sint")
+	h.press(enter)
+
+	h.wantOnScreen("Next from Gent-Sint-Pieters", "Oostende", "IC 535")
+	if len(h.src.boards) != 1 || h.src.boards[0] != gentID {
+		t.Errorf("boards asked for %v", h.src.boards)
+	}
+}
+
+func TestAWideFormHasItsSidePaneBesideIt(t *testing.T) {
+	h := twoRecentTrips(t)
+	h.send(tea.WindowSizeMsg{Width: 130, Height: 30})
+
+	var row string
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "From  Gent-Sint-Pieters") {
+			row = l
+		}
+	}
+	if !strings.Contains(row, "Recent trips") {
+		t.Errorf("the recent trips are not beside the form: %q", row)
+	}
+	h.wantOnScreen("Next from Gent-Sint-Pieters")
 }
 
 func TestQuits(t *testing.T) {

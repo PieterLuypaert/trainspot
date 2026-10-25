@@ -28,11 +28,11 @@ type Config struct {
 	Lang     string
 	Location *time.Location
 	Now      func() time.Time
-	// From and To are the station ids of the trip to open on, such as the
-	// last one; without them the screen opens on the form.
-	From, To string
-	// Remember saves a trip so that the next start opens on it.
-	Remember func(fromID, toID string) error
+	// Recent are the recent trips, the last one first. The screen opens on
+	// the first, or on the form without any.
+	Recent Trips
+	// Remember saves the recent trips whenever a trip is picked.
+	Remember func(Trips) error
 	// TickEvery is how often the screen updates its clock and checks
 	// whether to refresh; 15 seconds when zero.
 	TickEvery time.Duration
@@ -106,7 +106,13 @@ type Model struct {
 	note string
 	// first is the fetch of the trip the screen opens on. New prepares it,
 	// since Init cannot keep the id it would start.
-	first tea.Cmd
+	first  tea.Cmd
+	recent Trips
+	// preview is the board of the station in the From field, shown beside
+	// the form, for the station previewID; previewAt is when it came.
+	preview   irail.Liveboard
+	previewID string
+	previewAt time.Time
 }
 
 type tripMsg struct {
@@ -123,10 +129,19 @@ type boardMsg struct {
 
 type tickMsg time.Time
 
+type previewMsg struct {
+	id    int
+	board irail.Liveboard
+	err   error
+}
+
 func New(cfg Config) Model {
-	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}}
-	from, hasFrom := cfg.Stations.ByID(cfg.From)
-	to, hasTo := cfg.Stations.ByID(cfg.To)
+	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}, recent: cfg.Recent}
+	if len(cfg.Recent) == 0 {
+		return m
+	}
+	from, hasFrom := cfg.Stations.ByID(cfg.Recent[0].From)
+	to, hasTo := cfg.Stations.ByID(cfg.Recent[0].To)
 	if hasFrom && hasTo && from.ID != to.ID {
 		m.setTrip(from, to)
 		m.screen = journeys
@@ -196,6 +211,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.gotBoard(msg)
 	case routeMsg:
 		m.gotRoute(msg)
+	case previewMsg:
+		m.gotPreview(msg)
 	case followMsg:
 		m.gotFollow(msg)
 	case tea.PasteMsg:
@@ -247,6 +264,8 @@ func (m *Model) fetch() tea.Cmd {
 		return m.fetchFollow()
 	case m.screen == journeys || m.screen == stops:
 		return m.fetchTrip()
+	case m.screen == planning && m.fields[0].station != nil:
+		return m.fetchPreview()
 	}
 	return nil
 }
@@ -280,6 +299,9 @@ func (m Model) planningKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		f.clear()
 	default:
+		if n, ok := m.recentKey(k.Text); ok {
+			return m.pickRecent(n)
+		}
 		m.typed(k.Text)
 		return m, nil
 	}
@@ -325,7 +347,7 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 	if !search || from == nil || to == nil {
 		m.focus = 1 - m.focus
 		m.suggest()
-		return m, nil
+		return m.previewFrom()
 	}
 	if from.ID == to.ID {
 		m.note = "From and To are the same station; pick two different ones"
@@ -339,8 +361,9 @@ func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 func (m Model) startTrip(from, to stations.Station) (tea.Model, tea.Cmd) {
 	m.setTrip(from, to)
 	m.screen = journeys
+	m.recent = m.recent.With(Trip{From: from.ID, To: to.ID})
 	if m.cfg.Remember != nil {
-		if err := m.cfg.Remember(from.ID, to.ID); err != nil {
+		if err := m.cfg.Remember(m.recent); err != nil {
 			m.note = "could not remember this trip for next time: " + err.Error()
 		}
 	}
@@ -384,7 +407,7 @@ func (m Model) toPlanning() (tea.Model, tea.Cmd) {
 	m.screen, m.waiting, m.err = planning, 0, nil
 	m.focus = 1
 	m.suggest()
-	return m, nil
+	return m.previewFrom()
 }
 
 func (m Model) journeysKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {

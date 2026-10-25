@@ -67,7 +67,7 @@ func (m Model) render() string {
 		main, tail, shown := m.scrollView()
 		return frame(m.routeTitle(), clock, scrollBody(main, tail, shown, m.scroll), routeKeys, width, height)
 	}
-	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
+	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner, room), m.planningKeys(), width, height)
 }
 
 var (
@@ -84,7 +84,15 @@ func (m Model) planningKeys() []key {
 	if m.hasTrip() {
 		back = key{name: "esc", does: "back"}
 	}
-	return []key{{name: "tab", does: "next field"}, {name: "↑↓", does: "choose"}, {name: "enter", does: "search"}, back}
+	keys := []key{{name: "tab", does: "next field"}, {name: "↑↓", does: "choose"}, {name: "enter", does: "search"}}
+	switch n := len(m.recentTrips()); n {
+	case 0:
+	case 1:
+		keys = append(keys, key{name: "1", does: "recent trip"})
+	default:
+		keys = append(keys, key{name: fmt.Sprintf("1-%d", n), does: "recent trip"})
+	}
+	return append(keys, back)
 }
 
 func (m Model) tripTitle() string {
@@ -99,7 +107,19 @@ func (m Model) departuresTitle() string {
 	return title
 }
 
-func (m Model) planningBody(width int) []string {
+// planningBody puts the form on the left and, beside it in a wide window
+// or under it in a narrow one, the recent trips and the next departures
+// from the station in the From field.
+func (m Model) planningBody(width, room int) []string {
+	if width >= twoPanesWidth {
+		formWidth := width / 2
+		return sideBySide(m.formLines(formWidth), m.planningSide(width-formWidth-lipgloss.Width(divider), room), formWidth)
+	}
+	form := m.formLines(width)
+	return append(form, m.planningSide(width, room-len(form))...)
+}
+
+func (m Model) formLines(width int) []string {
 	body := []string{""}
 	for i, f := range m.fields {
 		body = append(body, m.fieldLine(i, f))
