@@ -370,6 +370,16 @@ func fit(list []irail.Departure, o Options) ([]column, []int) {
 	return last, widths
 }
 
+// Widths are how wide the board draws: full with every column at its
+// natural width, and least with every column still there and the
+// destinations shortened as far as they go before a column would.
+func Widths(b irail.Liveboard, o Options) (full, least int) {
+	widths := natural(withoutEmpty(layouts[0], b.Departures, o), b.Departures, o)
+	full = total(widths)
+	widths[destination] = min(widths[destination], roomyDestination)
+	return full, total(widths)
+}
+
 func withoutEmpty(layout []column, list []irail.Departure, o Options) []column {
 	return slices.DeleteFunc(slices.Clone(layout), func(c column) bool {
 		return c.optional && !slices.ContainsFunc(list, func(d irail.Departure) bool { return c.cell(d, o).text != "" })

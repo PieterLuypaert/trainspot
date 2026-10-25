@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/PieterLuypaert/trainspot/internal/board"
 	"github.com/PieterLuypaert/trainspot/internal/irail"
@@ -59,16 +60,21 @@ func (m Model) chosenDeparture() (irail.Departure, bool) {
 
 func (m Model) wideBoard() bool {
 	width, _ := m.inside()
-	return boardWidth(width) < width
+	return m.boardWidth(width) < width
 }
 
-// boardWidth is how wide the board is drawn in width: all of it, or a
-// little over half with the chosen train's route beside it.
-func boardWidth(width int) int {
-	if width < twoPanesWidth {
+// boardWidth is how wide the board is drawn in width. The chosen train's
+// route stands beside it only when the board keeps every column and the
+// route gets minRouteWidth, as the journeys do; the board then takes up to
+// its full width and the route the rest. Otherwise, and when no train
+// leaves, the board takes all of it.
+func (m Model) boardWidth(width int) int {
+	full, least := board.Widths(m.board, board.Options{Now: m.cfg.Now(), Location: m.cfg.Location})
+	room := width - lipgloss.Width(divider) - minRouteWidth
+	if width < twoPanesWidth || least > room || len(m.board.Departures) == 0 {
 		return width
 	}
-	return width * 55 / 100
+	return min(full, room)
 }
 
 // settle waits for the choice to rest before its route is fetched.

@@ -352,8 +352,8 @@ func (m Model) departuresBody(width, room int) []string {
 	case m.board.Updated.IsZero() && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
-	left := boardWidth(width)
-	head, rows, tail, shown := m.departuresView(left, room)
+	left := m.boardWidth(width)
+	head, rows, tail, shown := m.departuresView(width, room)
 	if left == width {
 		return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
 	}
@@ -365,9 +365,15 @@ func (m Model) departuresBody(width, room int) []string {
 
 // departuresView lays the board out for the window: the column titles,
 // the rows with the chosen one marked, the legend and status line, and how
-// many rows fit.
+// many rows fit. The rows take the board's width; the legend and status
+// line run under the route beside it too.
 func (m Model) departuresView(width, room int) (head, rows, tail []string, shown int) {
-	lines, legend := board.DepartureLines(m.board, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	o := board.Options{Width: m.boardWidth(width), Now: m.cfg.Now(), Location: m.cfg.Location}
+	lines, legend := board.DepartureLines(m.board, o)
+	if o.Width < width {
+		o.Width = width
+		_, legend = board.DepartureLines(m.board, o)
+	}
 	head, rows = []string{"", lines[0]}, slices.Clone(lines[1:])
 	if m.boardChoice < len(rows) {
 		rows[m.boardChoice] = bold.Render("▸ ") + strings.TrimPrefix(rows[m.boardChoice], indent)
@@ -384,7 +390,7 @@ func (m Model) departuresView(width, room int) (head, rows, tail []string, shown
 func (m *Model) showBoardChoice() {
 	m.boardChoice = max(0, min(m.boardChoice, len(m.board.Departures)-1))
 	width, room := m.inside()
-	_, rows, _, shown := m.departuresView(boardWidth(width), room)
+	_, rows, _, shown := m.departuresView(width, room)
 	if m.boardChoice < m.boardScroll {
 		m.boardScroll = m.boardChoice
 	}
