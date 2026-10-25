@@ -294,8 +294,16 @@ func (m Model) departuresBody(width, room int) []string {
 	case m.board.Updated.IsZero() && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
-	head, rows, tail, shown := m.departuresView(width, room)
-	return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
+	if width < twoPanesWidth {
+		head, rows, tail, shown := m.departuresView(width, room)
+		return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
+	}
+	// In a wide window the chosen train's route stands beside the board.
+	left := width * 55 / 100
+	head, rows, tail, shown := m.departuresView(left, room)
+	departures := append(head, scrollBody(rows, nil, shown, m.boardScroll)...)
+	route := m.peekLines(width-left-lipgloss.Width(divider), room-len(tail))
+	return append(sideBySide(departures, route, left), tail...)
 }
 
 // departuresView lays the board out for the window: the column titles,

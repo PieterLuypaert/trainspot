@@ -154,7 +154,8 @@ func newHarness(t *testing.T, from, to string) *harness {
 			h.remembered = append(h.remembered, trips[0].From+">"+trips[0].To)
 			return nil
 		},
-		TickEvery: time.Nanosecond,
+		TickEvery:   time.Nanosecond,
+		SettleAfter: time.Nanosecond,
 	})
 	h.send(tea.WindowSizeMsg{Width: 90, Height: 30})
 	for _, msg := range run(t, h.m.Init()) {
@@ -1029,6 +1030,46 @@ func TestAWideFormWrapsItsHint(t *testing.T) {
 	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
 
 	h.wantOnScreen("Type a station's name", "brussels airport.")
+}
+
+func TestAWideBoardShowsTheChosenTrainsRouteBesideIt(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+
+	h.press(letter('d'))
+
+	var row string
+	for _, l := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(l, "▸ 16:49") {
+			row = l
+		}
+	}
+	if !strings.Contains(row, "│") {
+		t.Errorf("no pane beside the chosen departure: %q", row)
+	}
+	h.wantOnScreen("IC 535 to Oostende", "◆  Wetteren", "train is here")
+	h.press(down, tea.KeyPressMsg{Code: tea.KeyUp})
+	if strings.Join(h.src.routes, ",") != "BE.NMBS.IC535,BE.NMBS.IC536" {
+		t.Errorf("routes asked for %v, want each train once", h.src.routes)
+	}
+
+	h.press(enter)
+	if len(h.src.routes) != 2 {
+		t.Errorf("opening the route fetched it again: %v", h.src.routes)
+	}
+	h.wantOnScreen("IC 535 to Oostende · from Gent-Sint-Pieters 16:49")
+}
+
+func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 3
+
+	h.press(letter('d'), down, down)
+
+	if len(h.src.routes) != 0 {
+		t.Errorf("a narrow board fetched routes: %v", h.src.routes)
+	}
 }
 
 func TestQuits(t *testing.T) {

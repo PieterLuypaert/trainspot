@@ -34,6 +34,9 @@ func (m Model) toRoute(d irail.Departure) (tea.Model, tea.Cmd) {
 		m.route, m.routeAt = irail.Route{}, time.Time{}
 	}
 	m.routeOf = d
+	if p, ok := m.peeks[departureKey(d)]; ok && p.err == nil && !m.stale(p.at) && m.stale(m.routeAt) {
+		m.route, m.routeAt = p.route, p.at
+	}
 	if !m.stale(m.routeAt) {
 		return m, nil
 	}

@@ -36,6 +36,9 @@ type Config struct {
 	// TickEvery is how often the screen updates its clock and checks
 	// whether to refresh; 15 seconds when zero.
 	TickEvery time.Duration
+	// SettleAfter is how long a choice on the board rests before the
+	// route beside it is fetched; 400 milliseconds when zero.
+	SettleAfter time.Duration
 }
 
 type screen int
@@ -121,6 +124,9 @@ type Model struct {
 	previewAsked   string
 	previewAskedAt time.Time
 	previewErr     error
+	// peeks are the routes fetched for the pane beside the board, by
+	// departure.
+	peeks map[string]peeked
 }
 
 type tripMsg struct {
@@ -140,7 +146,7 @@ type boardMsg struct {
 type tickMsg time.Time
 
 func New(cfg Config) Model {
-	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}}
+	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}, peeks: map[string]peeked{}}
 	m.setRecent(cfg.Recent)
 	if len(cfg.Recent) == 0 {
 		return m
@@ -210,6 +216,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		return m, m.settle()
 	case tickMsg:
 		return m.refresh()
 	case tripMsg:
@@ -222,7 +229,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.gotPreview(msg)
 		} else {
 			m.gotBoard(msg)
+			return m, m.settle()
 		}
+	case settleMsg:
+		return m, m.peek(msg)
+	case peekMsg:
+		m.gotPeek(msg)
 	case routeMsg:
 		m.gotRoute(msg)
 	case followMsg:
@@ -409,7 +421,7 @@ func (m Model) toJourneys() (tea.Model, tea.Cmd) {
 func (m Model) toDepartures() (tea.Model, tea.Cmd) {
 	m.screen, m.waiting, m.err, m.note = departures, 0, nil, ""
 	if !m.stale(m.boardAt) {
-		return m, nil
+		return m, m.settle()
 	}
 	fetch := m.fetchBoard()
 	return m, fetch
@@ -470,11 +482,13 @@ func (m Model) departuresKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.fetchAgain()
 	case "up", "k":
 		m.boardChoice = max(0, m.boardChoice-1)
+		return m, m.settle()
 	case "down", "j":
 		m.boardChoice = max(0, min(len(m.board.Departures)-1, m.boardChoice+1))
+		return m, m.settle()
 	case "enter", "right", "l":
-		if m.boardChoice < len(m.board.Departures) {
-			return m.toRoute(m.board.Departures[m.boardChoice])
+		if d, ok := m.chosenDeparture(); ok {
+			return m.toRoute(d)
 		}
 	}
 	return m, nil
