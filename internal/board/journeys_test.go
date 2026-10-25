@@ -112,14 +112,18 @@ func TestJourneysNameLongChangesInHoursAndTheDayAtNight(t *testing.T) {
 }
 
 func TestJourneysShowCancelledTrains(t *testing.T) {
-	cancelled := stop("Gent-Sint-Pieters", "16:07", 0, "9")
+	cancelled := stop("Gent-Sint-Pieters", "16:07", 10, "9")
 	cancelled.Cancelled = true
 	j := irail.Journey{Legs: []irail.Leg{ride("IC 3616", "Leuven", cancelled, stop("Aarlen", "20:00", 0, "2"))}}
 
-	b := block(t, renderJourneys([]irail.Journey{j}, 100), "16:07")
+	out := renderJourneys([]irail.Journey{j}, 100)
+	b := block(t, out, "16:07")
 
 	if !strings.Contains(b, "16:07 → 20:00   cancelled") || !strings.Contains(b, "IC 3616 to Leuven  cancelled") {
 		t.Errorf("cancelled journey:\n%s", b)
+	}
+	if strings.Contains(out, "+10") {
+		t.Errorf("a cancelled train shows its delay:\n%s", out)
 	}
 }
 

@@ -64,7 +64,9 @@ func newJourneyView(list []irail.Journey, o JourneyOptions) *journeyView {
 	for _, j := range list {
 		for _, leg := range j.Legs {
 			for _, s := range []irail.Stop{leg.Departure, leg.Arrival} {
-				v.delay = max(v.delay, lipgloss.Width(delayText(s.Delay)))
+				if !s.Cancelled {
+					v.delay = max(v.delay, lipgloss.Width(delayText(s.Delay)))
+				}
 				v.station = max(v.station, lipgloss.Width(s.Station))
 				v.platform = max(v.platform, lipgloss.Width(platformCell(s.Platform, s.PlatformChanged, s.Cancelled).text))
 			}
@@ -92,11 +94,12 @@ func (v *journeyView) delayColumn(mark string) string {
 
 func (v *journeyView) summary(j irail.Journey, changes []irail.Change) string {
 	dep, arr := j.Departure(), j.Arrival()
-	times := v.day(dep.Scheduled) + bold.Render(v.clock(dep.Scheduled)) + v.delayMark(dep.Delay, " ") +
-		" → " + bold.Render(v.clock(arr.Scheduled)) + v.delayMark(arr.Delay, " ")
+	start := v.day(dep.Scheduled) + bold.Render(v.clock(dep.Scheduled))
+	end := bold.Render(v.clock(arr.Scheduled))
 	if j.Cancelled() {
-		return times + "   " + alarm.Render("cancelled")
+		return start + " → " + end + "   " + alarm.Render("cancelled")
 	}
+	times := start + v.delayMark(dep.Delay, " ") + " → " + end + v.delayMark(arr.Delay, " ")
 	parts := []string{times, formatDuration(j.Duration()), changesText(len(changes))}
 	if slices.ContainsFunc(changes, irail.Change.Missed) {
 		parts = append(parts, alarm.Render("change missed"))
@@ -129,14 +132,15 @@ func legLabel(leg irail.Leg) string {
 }
 
 func (v *journeyView) stop(s irail.Stop, label string) string {
-	timeStyle := plain
+	timeStyle, delay := faint, ""
 	if s.Cancelled {
-		timeStyle = faint
 		label = strings.TrimSpace(label + "  " + alarm.Render("cancelled"))
+	} else {
+		timeStyle, delay = plain, v.delayMark(s.Delay, "")
 	}
 	platform := platformCell(s.Platform, s.PlatformChanged, s.Cancelled)
 	v.notes = addNote(v.notes, platform.note)
-	line := stopIndent + timeStyle.Render(v.clock(s.Scheduled)) + v.delayColumn(v.delayMark(s.Delay, "")) + gap +
+	line := stopIndent + timeStyle.Render(v.clock(s.Scheduled)) + v.delayColumn(delay) + gap +
 		pad(ansi.Truncate(s.Station, v.station, "…"), v.station, false) +
 		pad(platform.style.Render(platform.text), v.platform, label == "")
 	if label != "" {
