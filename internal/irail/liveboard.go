@@ -3,7 +3,6 @@ package irail
 import (
 	"context"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -76,14 +75,7 @@ func (c *Client) Liveboard(ctx context.Context, stationID, lang string) (Liveboa
 }
 
 func (d departureJSON) departure() Departure {
-	platform := d.Platform
-	if platform == "?" {
-		platform = ""
-	}
-	train := d.VehicleInfo.ShortName
-	if train == "" {
-		train = strings.TrimPrefix(d.Vehicle, "BE.NMBS.")
-	}
+	platform, platformChanged := platform(d.Platform, d.PlatformInfo.Normal)
 	occupancy := d.Occupancy.Name
 	if occupancy == "unknown" {
 		occupancy = ""
@@ -93,11 +85,11 @@ func (d departureJSON) departure() Departure {
 		Scheduled:       time.Unix(int64(d.Time), 0),
 		Delay:           time.Duration(d.Delay) * time.Second,
 		Platform:        platform,
-		PlatformChanged: platform != "" && d.PlatformInfo.Normal != nil && !bool(*d.PlatformInfo.Normal),
+		PlatformChanged: platformChanged,
 		Cancelled:       bool(d.Canceled),
 		Departed:        bool(d.Left),
 		Extra:           bool(d.IsExtra),
-		Train:           train,
+		Train:           trainName(d.VehicleInfo.ShortName, d.Vehicle),
 		Occupancy:       occupancy,
 	}
 }

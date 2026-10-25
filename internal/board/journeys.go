@@ -50,7 +50,7 @@ func Journeys(list []irail.Journey, o JourneyOptions) string {
 	for _, line := range legend(noteTexts(v.notes), o.Width) {
 		out.WriteString(clip(indent+line, o.Width) + "\n")
 	}
-	out.WriteString(clip(indent+faint.Render("Live NMBS data via iRail, updated "+o.Updated.In(o.Location).Format("15:04")), o.Width) + "\n")
+	out.WriteString(clip(footer(o.Updated, o.Location), o.Width) + "\n")
 	return out.String()
 }
 
@@ -96,8 +96,8 @@ func (v *journeyView) delayColumn(mark string) string {
 
 func (v *journeyView) summary(j irail.Journey, changes []irail.Change) string {
 	dep, arr := j.Departure(), j.Arrival()
-	start := v.day(dep.Scheduled) + bold.Render(v.clock(dep.Scheduled))
-	end := bold.Render(v.clock(arr.Scheduled))
+	start := v.day(dep.Scheduled) + bold.Render(clock(dep.Scheduled, v.o.Location))
+	end := bold.Render(clock(arr.Scheduled, v.o.Location))
 	if j.Cancelled() {
 		return start + " → " + end + "   " + alarm.Render("cancelled")
 	}
@@ -142,7 +142,7 @@ func (v *journeyView) stop(s irail.Stop, label string) string {
 	}
 	platform := platformCell(s.Platform, s.PlatformChanged, s.Cancelled)
 	v.notes = addNote(v.notes, platform.note)
-	line := stopIndent + timeStyle.Render(v.clock(s.Scheduled)) + v.delayColumn(delay) + gap +
+	line := stopIndent + timeStyle.Render(clock(s.Scheduled, v.o.Location)) + v.delayColumn(delay) + gap +
 		pad(ansi.Truncate(s.Station, v.station, "…"), v.station, false) +
 		pad(platform.style.Render(platform.text), v.platform, label == "")
 	if label != "" {
@@ -176,12 +176,12 @@ func (v *journeyView) delayMark(delay time.Duration, space string) string {
 	if text == "" {
 		return ""
 	}
-	v.notes = addNote(v.notes, lateNote(int(delay/time.Minute)))
+	v.notes = addNote(v.notes, lateNote(minutes(delay)))
 	return space + delayStyle(delay).Render(text)
 }
 
 func delayText(delay time.Duration) string {
-	if late := int(delay / time.Minute); late > 0 {
+	if late := minutes(delay); late > 0 {
 		return fmt.Sprintf("+%d", late)
 	}
 	return ""
@@ -194,10 +194,6 @@ func (v *journeyView) day(t time.Time) string {
 		return ""
 	}
 	return faint.Render(t.In(v.o.Location).Format("Mon 2 Jan")) + "  "
-}
-
-func (v *journeyView) clock(t time.Time) string {
-	return t.In(v.o.Location).Format("15:04")
 }
 
 // clip shortens a line that would not fit the width even after the

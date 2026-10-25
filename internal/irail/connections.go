@@ -3,7 +3,6 @@ package irail
 import (
 	"context"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -116,10 +115,7 @@ func (c connectionJSON) journey() Journey {
 	for i, dep := range departures {
 		leg := Leg{Walking: bool(dep.Walking), Departure: dep.stop(), Arrival: arrivals[i].stop()}
 		if !leg.Walking {
-			leg.Train = dep.VehicleInfo.ShortName
-			if leg.Train == "" {
-				leg.Train = strings.TrimPrefix(dep.Vehicle, "BE.NMBS.")
-			}
+			leg.Train = trainName(dep.VehicleInfo.ShortName, dep.Vehicle)
 			leg.Direction = dep.Direction.Name
 		}
 		j.Legs = append(j.Legs, leg)
@@ -128,16 +124,13 @@ func (c connectionJSON) journey() Journey {
 }
 
 func (e endpointJSON) stop() Stop {
-	platform := e.Platform
-	if platform == "?" {
-		platform = ""
-	}
+	platform, platformChanged := platform(e.Platform, e.PlatformInfo.Normal)
 	return Stop{
 		Station:         e.Station,
 		Scheduled:       time.Unix(int64(e.Time), 0),
 		Delay:           time.Duration(e.Delay) * time.Second,
 		Platform:        platform,
-		PlatformChanged: platform != "" && e.PlatformInfo.Normal != nil && !bool(*e.PlatformInfo.Normal),
+		PlatformChanged: platformChanged,
 		Cancelled:       bool(e.Canceled),
 	}
 }

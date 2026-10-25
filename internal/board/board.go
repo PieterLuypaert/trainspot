@@ -61,8 +61,7 @@ func Render(b irail.Liveboard, o Options) string {
 	for _, line := range legend(notes, o.Width) {
 		out.WriteString(indent + line + "\n")
 	}
-	updated := b.Updated.In(o.Location).Format("15:04")
-	out.WriteString(indent + faint.Render("Live NMBS data via iRail, updated "+updated) + "\n")
+	out.WriteString(footer(b.Updated, o.Location) + "\n")
 	return out.String()
 }
 
@@ -106,12 +105,18 @@ func legend(notes []string, width int) []string {
 	return []string{line}
 }
 
-func minutesLate(d irail.Departure) int {
-	return int(d.Delay / time.Minute)
+// footer says where the data comes from and when iRail worked it out.
+func footer(updated time.Time, loc *time.Location) string {
+	return indent + faint.Render("Live NMBS data via iRail, updated "+clock(updated, loc))
 }
 
-func clock(t time.Time, o Options) string {
-	return t.In(o.Location).Format("15:04")
+// minutes counts whole minutes, which is how NMBS gives delays.
+func minutes(d time.Duration) int {
+	return int(d / time.Minute)
+}
+
+func clock(t time.Time, loc *time.Location) string {
+	return t.In(loc).Format("15:04")
 }
 
 type cell struct {
@@ -191,9 +196,9 @@ type column struct {
 var (
 	timeColumn = column{title: "Time", cell: func(d irail.Departure, o Options) cell {
 		if d.Cancelled || d.Departed {
-			return cell{text: clock(d.Scheduled, o), style: faint}
+			return cell{text: clock(d.Scheduled, o.Location), style: faint}
 		}
-		return cell{text: clock(d.Scheduled, o), style: bold}
+		return cell{text: clock(d.Scheduled, o.Location), style: bold}
 	}}
 	expectedColumn = column{title: "Expected", cell: func(d irail.Departure, o Options) cell {
 		switch {
@@ -201,11 +206,11 @@ var (
 			return cell{text: "cancelled", style: alarm}
 		case d.Departed:
 			return cell{text: "departed", style: faint}
-		case minutesLate(d) <= 0:
+		case minutes(d.Delay) <= 0:
 			return cell{text: "on time", style: green}
 		}
-		late := minutesLate(d)
-		return cell{text: fmt.Sprintf("%s +%d", clock(d.Expected(), o), late), style: delayStyle(d.Delay), note: lateNote(late)}
+		late := minutes(d.Delay)
+		return cell{text: fmt.Sprintf("%s +%d", clock(d.Expected(), o.Location), late), style: delayStyle(d.Delay), note: lateNote(late)}
 	}}
 	destinationColumn = column{title: "To", cell: func(d irail.Departure, o Options) cell {
 		if d.Cancelled || d.Departed {
