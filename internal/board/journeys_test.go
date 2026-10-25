@@ -191,20 +191,32 @@ func TestJourneysSaySoWhenThereAreNone(t *testing.T) {
 	}
 }
 
-func TestEachJourneyHasALegendForWhatItShows(t *testing.T) {
+func TestSummariesComeAloneWithTheirLegend(t *testing.T) {
+	late := irail.Journey{Legs: []irail.Leg{ride("IC 2114", "", stop("Gent-Sint-Pieters", "15:46", 3, "10"), stop("Aarlen", "19:10", 0, "2"))}}
+	o := JourneyOptions{Width: 100, Now: at("14:52"), Location: brussels}
+
+	summaries, legend := JourneySummaries([]irail.Journey{late}, o)
+
+	if strings.Join(summaries, "|") != strings.Join(LayOutJourneys([]irail.Journey{late}, o).Summaries, "|") {
+		t.Errorf("summaries differ from the full layout: %q", summaries)
+	}
+	if text := ansi.Strip(strings.Join(legend.Lines(100), " ")); !strings.Contains(text, "+3 = 3 min late") {
+		t.Errorf("legend = %q", text)
+	}
+}
+
+func TestALegendExplainsOnlyTheMarksInView(t *testing.T) {
 	changed := stop("Brussel-Zuid", "16:33", 0, "15")
 	changed.PlatformChanged = true
-	plain := irail.Journey{Legs: []irail.Leg{ride("IC 2114", "", stop("Gent-Sint-Pieters", "15:46", 0, "10"), stop("Aarlen", "19:10", 0, "2"))}}
-	withChange := irail.Journey{Legs: []irail.Leg{ride("IC 2117", "", changed, stop("Aarlen", "19:42", 0, "2"))}}
+	j := irail.Journey{Legs: []irail.Leg{ride("IC 2117", "", changed, stop("Aarlen", "19:42", 4, "2"))}}
+	lines, legend := JourneyStops(j, JourneyOptions{Width: 80, Now: at("14:52"), Location: brussels})
 
-	l := LayOutJourneys([]irail.Journey{plain, withChange}, JourneyOptions{Width: 100, Now: at("14:52"), Location: brussels})
-
-	text := func(lines []string) string { return ansi.Strip(strings.Join(lines, "\n")) }
-	if strings.Contains(text(l.Legends[0]), "platform changed") {
-		t.Errorf("the first journey's legend explains a mark it does not show: %q", text(l.Legends[0]))
+	text := func(l Legend) string { return ansi.Strip(strings.Join(l.Lines(80), " ")) }
+	if all := text(legend.In(lines)); !strings.Contains(all, "platform changed") || !strings.Contains(all, "min late") {
+		t.Errorf("legend of all lines = %q", all)
 	}
-	if !strings.Contains(text(l.Legends[1]), "platform changed") || !strings.Contains(text(l.Legend), "platform changed") {
-		t.Errorf("legends = %q and %q", text(l.Legends[1]), text(l.Legend))
+	if first := text(legend.In(lines[:2])); strings.Contains(first, "min late") || !strings.Contains(first, "platform changed") {
+		t.Errorf("legend of the first lines, before the +4 = %q", first)
 	}
 }
 

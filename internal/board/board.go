@@ -4,6 +4,7 @@ package board
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -194,6 +195,46 @@ func (k *marks) delayColumn(mark string) string {
 
 func (k *marks) note(n *note) {
 	k.notes = addNote(k.notes, n)
+}
+
+// Legend explains the marks on what was drawn. The legends of parts drawn
+// side by side join into one, each mark explained once.
+type Legend struct{ notes []note }
+
+func (l Legend) With(other Legend) Legend {
+	notes := slices.Clone(l.notes)
+	for _, n := range other.notes {
+		notes = addNote(notes, &n)
+	}
+	return Legend{notes}
+}
+
+// In keeps the notes for the marks that show in lines, so the legend of a
+// part cut short explains only what is on screen.
+func (l Legend) In(lines []string) Legend {
+	text := ansi.Strip(strings.Join(lines, "\n"))
+	var kept []note
+	for _, n := range l.notes {
+		if markPattern[n.kind].MatchString(text) {
+			kept = append(kept, n)
+		}
+	}
+	return Legend{kept}
+}
+
+// markPattern finds the mark a note explains in drawn text.
+var markPattern = map[int]*regexp.Regexp{
+	lateKind:     regexp.MustCompile(`\+\d+`),
+	platformKind: regexp.MustCompile(`\S+ !`),
+}
+
+// Lines lays the legend out for the width, each line indented.
+func (l Legend) Lines(width int) []string {
+	var lines []string
+	for _, line := range legend(noteTexts(slices.Clone(l.notes)), width) {
+		lines = append(lines, clip(indent+line, width))
+	}
+	return lines
 }
 
 func noteTexts(notes []note) []string {

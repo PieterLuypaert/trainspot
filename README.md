@@ -36,7 +36,8 @@ trainspot liège-guillemins --lang fr      # station names in French: nl, fr, en
 Plain `trainspot` opens a full screen to plan a trip. Type where you leave from and
 where you are going, and it suggests stations as you type, in any of the four languages.
 Pick one with the arrow keys and enter, or tab to the other field. Once both are set,
-enter shows the next journeys, with the stops of the one you choose below them.
+enter shows the next journeys; in a wide window the chosen journey's route line stands
+beside them, in a narrow one under them.
 
 On the journeys, enter shows every stop of the chosen journey down a route line: per
 train how long it rides and how often it stops, a dot where you get on and off with its
