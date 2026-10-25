@@ -247,6 +247,14 @@ func TestCachePathFollowsXDG(t *testing.T) {
 	}
 }
 
+func TestHelpFitsAnEightyColumnTerminal(t *testing.T) {
+	for _, line := range strings.Split(usage, "\n") {
+		if w := ansi.StringWidth(line); w > 80 {
+			t.Errorf("help line is %d wide: %q", w, line)
+		}
+	}
+}
+
 func TestParseArgs(t *testing.T) {
 	cases := []struct {
 		args    []string

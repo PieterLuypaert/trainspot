@@ -1,5 +1,5 @@
-// Command trainspot shows the live departures from any NMBS station in
-// Belgium.
+// Command trainspot shows live NMBS departures and journeys for any station
+// in Belgium.
 package main
 
 import (
@@ -29,8 +29,8 @@ import (
 const usage = `trainspot shows live NMBS departures and journeys for any station in Belgium.
 
 Usage:
-  trainspot <station> [options]                  departures from a station
-  trainspot <station> --to <station> [options]   journeys from one station to another
+  trainspot <station>                  departures from a station
+  trainspot <station> --to <station>   journeys from one station to another
 
 Examples:
   trainspot gent sint pieters
