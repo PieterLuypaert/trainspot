@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -177,6 +178,22 @@ func TestPickerTellsLookAlikesApart(t *testing.T) {
 	}
 	if got := ansi.Strip(describe(aachen, "nl")); got != "  Aachen Hbf · abroad" {
 		t.Errorf("describe(Aken) = %q", got)
+	}
+}
+
+func TestCachePathFollowsXDG(t *testing.T) {
+	cases := []struct{ xdg, home, want string }{
+		{"/var/cache/me", "/Users/me", "/var/cache/me/trainspot/stations.json"},
+		{"", "/Users/me", "/Users/me/.cache/trainspot/stations.json"},
+		{"relative/cache", "/Users/me", "/Users/me/.cache/trainspot/stations.json"},
+		{"", "", filepath.Join(os.TempDir(), "trainspot", "stations.json")},
+	}
+	for _, c := range cases {
+		t.Setenv("XDG_CACHE_HOME", c.xdg)
+		t.Setenv("HOME", c.home)
+		if got := cachePath(); got != c.want {
+			t.Errorf("XDG_CACHE_HOME=%q HOME=%q: cachePath() = %q, want %q", c.xdg, c.home, got, c.want)
+		}
 	}
 }
 

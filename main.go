@@ -90,10 +90,7 @@ func main() {
 		errOut:      stderr,
 		interactive: term.IsTerminal(os.Stdin.Fd()),
 		width:       terminalWidth(),
-	}
-	a.cachePath, err = cachePath()
-	if err != nil {
-		os.Exit(a.fail(err))
+		cachePath:   cachePath(),
 	}
 	os.Exit(a.run(context.Background(), o))
 }
@@ -140,16 +137,18 @@ func appVersion() string {
 	return "dev"
 }
 
-func cachePath() (string, error) {
+// cachePath follows the XDG spec, which ignores a relative XDG_CACHE_HOME.
+// Without a home folder, as under some service managers, the list goes to
+// the temporary folder rather than stopping trainspot.
+func cachePath() string {
 	dir := os.Getenv("XDG_CACHE_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("could not find your home folder to keep the station list in: %w", err)
+	if !filepath.IsAbs(dir) {
+		dir = os.TempDir()
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, ".cache")
 		}
-		dir = filepath.Join(home, ".cache")
 	}
-	return filepath.Join(dir, "trainspot", "stations.json"), nil
+	return filepath.Join(dir, "trainspot", "stations.json")
 }
 
 func terminalWidth() int {
