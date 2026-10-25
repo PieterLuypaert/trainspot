@@ -39,16 +39,16 @@ func Journeys(list []irail.Journey, o JourneyOptions) string {
 	v := newJourneyView(list, o)
 	for _, j := range list {
 		changes := j.Changes()
-		out.WriteString(indent + v.summary(j, changes) + "\n")
+		out.WriteString(clip(indent+v.summary(j, changes), o.Width) + "\n")
 		for _, line := range v.stops(j, changes) {
-			out.WriteString(line + "\n")
+			out.WriteString(clip(line, o.Width) + "\n")
 		}
 		out.WriteString("\n")
 	}
 	for _, line := range legend(noteTexts(v.notes), o.Width) {
-		out.WriteString(indent + line + "\n")
+		out.WriteString(clip(indent+line, o.Width) + "\n")
 	}
-	out.WriteString(indent + faint.Render("Live NMBS data via iRail, updated "+o.Now.In(o.Location).Format("15:04")) + "\n")
+	out.WriteString(clip(indent+faint.Render("Live NMBS data via iRail, updated "+o.Now.In(o.Location).Format("15:04")), o.Width) + "\n")
 	return out.String()
 }
 
@@ -196,6 +196,12 @@ func (v *journeyView) day(t time.Time) string {
 
 func (v *journeyView) clock(t time.Time) string {
 	return t.In(v.o.Location).Format("15:04")
+}
+
+// clip shortens a line that would not fit the width even after the
+// columns made way, as in a very narrow terminal.
+func clip(line string, width int) string {
+	return ansi.Truncate(line, width, "…")
 }
 
 func formatDuration(d time.Duration) string {

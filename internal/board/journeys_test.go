@@ -159,19 +159,25 @@ func TestJourneysCountAWalkAsPartOfTheChangeAfterIt(t *testing.T) {
 }
 
 func TestJourneysFitNarrowTerminals(t *testing.T) {
-	j := irail.Journey{Legs: []irail.Leg{
+	airport := irail.Journey{Legs: []irail.Leg{
 		ride("IC 2215", "Brussels Airport - Zaventem", stop("Brussels Airport - Zaventem", "15:00", 12, "4"), stop("Aarlen", "18:00", 0, "2")),
 	}}
+	night := irail.Journey{Legs: []irail.Leg{
+		ride("IC 522", "", stop("Gent-Sint-Pieters", "06:03", 12, "10"), irail.Stop{Station: "Luik-Guillemins", Scheduled: at("08:00").AddDate(0, 0, 1)}),
+		ride("IC 2426", "", irail.Stop{Station: "Luik-Guillemins", Scheduled: at("07:00").AddDate(0, 0, 1), Delay: 7 * time.Minute}, irail.Stop{Station: "Aarlen", Scheduled: at("10:00").AddDate(0, 0, 1)}),
+	}}
+	night.Legs[0].Departure.Scheduled = night.Legs[0].Departure.Scheduled.AddDate(0, 0, 1)
 
-	out := renderJourneys([]irail.Journey{j}, 50)
-
-	for _, l := range strings.Split(out, "\n") {
-		if w := ansi.StringWidth(l); w > 50 {
-			t.Errorf("line is %d wide: %q", w, l)
+	for _, width := range []int{50, 28} {
+		out := renderJourneys([]irail.Journey{airport, night}, width)
+		for _, l := range strings.Split(out, "\n") {
+			if w := ansi.StringWidth(l); w > width {
+				t.Errorf("width %d: line is %d wide: %q", width, w, l)
+			}
 		}
-	}
-	if !strings.Contains(out, "…") {
-		t.Errorf("nothing was shortened:\n%s", out)
+		if !strings.Contains(out, "…") {
+			t.Errorf("width %d: nothing was shortened:\n%s", width, out)
+		}
 	}
 }
 
