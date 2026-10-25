@@ -189,6 +189,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"gent"}, options{query: "gent", lang: "nl"}, ""},
 		{[]string{"--lang", "fr", "liège", "guillemins"}, options{query: "liège guillemins", lang: "fr"}, ""},
 		{[]string{"luik", "--no-color", "guillemins", "-lang=de"}, options{query: "luik guillemins", lang: "de", noColor: true}, ""},
+		{[]string{"--lang", "fr", "--", "gent", "--lang", "de"}, options{query: "gent --lang de", lang: "fr"}, ""},
 		{[]string{"-h"}, options{lang: "nl", help: true}, ""},
 		{[]string{"--version"}, options{lang: "nl", version: true}, ""},
 		{[]string{"gent", "--lang", "es"}, options{}, `--lang takes nl, fr, en or de, not "es"`},

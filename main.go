@@ -99,7 +99,7 @@ func main() {
 }
 
 // parseArgs allows options before, between and after the words of the
-// station name.
+// station name. Everything after -- is part of the name.
 func parseArgs(args []string) (options, error) {
 	o := options{}
 	fs := flag.NewFlagSet("trainspot", flag.ContinueOnError)
@@ -109,7 +109,10 @@ func parseArgs(args []string) (options, error) {
 	fs.BoolVar(&o.help, "h", false, "")
 	fs.BoolVar(&o.help, "help", false, "")
 	fs.BoolVar(&o.version, "version", false, "")
-	var words []string
+	var words, rest []string
+	if i := slices.Index(args, "--"); i >= 0 {
+		args, rest = args[:i], args[i+1:]
+	}
 	for {
 		if err := fs.Parse(args); err != nil {
 			return o, err
@@ -120,7 +123,7 @@ func parseArgs(args []string) (options, error) {
 		words = append(words, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
-	o.query = strings.Join(words, " ")
+	o.query = strings.Join(append(words, rest...), " ")
 	if !slices.Contains(irail.Languages, o.lang) {
 		return o, fmt.Errorf("--lang takes nl, fr, en or de, not %q", o.lang)
 	}
