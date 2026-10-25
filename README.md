@@ -18,55 +18,55 @@ trainspot liège-guillemins --lang fr      # station names in French: nl, fr, en
 
 ## The trip screen
 
-```text
-╭─ Gent-Sint-Pieters → Brussel-Zuid ──────────────────────── Sun 25 Oct 17:15 ─╮
-│                                                                              │
-│ ▸ 17:52 → 18:31      39 min   direct                                         │
-│   18:03 → 18:50 +1   48 min   direct                                         │
-│   18:13 → 19:07      54 min   direct                                         │
-│   ────────────────────────────────────────────────────────────────────────   │
-│     17:52  Gent-Sint-Pieters  10  IC 1517 to Genk                            │
-│     18:31  Brussel-Zuid       12                                             │
-│                                                                              │
-│   +1 = 1 min late                                                            │
-│   Live NMBS data via iRail, updated 17:15                                    │
-╰─ ↑↓ choose · d departures · e edit · s swap · r refresh · q quit ────────────╯
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/trip-dark.png">
+  <img alt="The trip screen: the From and To fields with the recent trips under them, and the next departures from Gent-Sint-Pieters beside them" src="docs/screenshots/trip-light.png">
+</picture>
 
 Plain `trainspot` opens a full screen to plan a trip. Type where you leave from and
 where you are going, and it suggests stations as you type, in any of the four languages.
 Pick one with the arrow keys and enter, or tab to the other field. Under the form stand
 your recent trips, each picked with its number, and beside it the next departures from
-where you leave. Once both stations are set, enter shows the next journeys; in a wide
-window the chosen journey's route line stands beside them, in a narrow one under them.
+where you leave.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/journeys-dark.png">
+  <img alt="The next journeys from Gent-Sint-Pieters to Namen, with the chosen journey's route line beside the list" src="docs/screenshots/journeys-light.png">
+</picture>
+
+Once both stations are set, enter shows the next journeys; in a wide window the chosen
+journey's route line stands beside them, in a narrow one under them.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/stops-dark.png">
+  <img alt="Every stop of a journey from Gent-Sint-Pieters to Namen down a route line, with the change at Leuven" src="docs/screenshots/stops-light.png">
+</picture>
 
 On the journeys, enter shows every stop of the chosen journey down a route line: per
 train how long it rides and how often it stops, a dot where you get on and off with its
 platform, a bar for each station on the way and a diamond where the train is now, and
 for each change the time you have and the platforms to walk between. A stop the train
-skips, or where it now ends, is marked.
-When the journey's first train has left, trainspot keeps following its trains live.
+skips, or where it now ends, is marked. When the journey's first train has left,
+trainspot keeps following its trains live.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/departures-dark.png">
+  <img alt="The departure board of Gent-Sint-Pieters with the chosen train's run from De Panne to Leuven beside it" src="docs/screenshots/departures-light.png">
+</picture>
+
 `d` shows the departure board of where the trip starts; there, choose a train with the
-arrow keys to see its whole run and where it is now, beside the board in a wide window or
-with enter in a narrow one. `s` swaps the two
-stations, `e` edits them and `r` fetches everything again; it also refreshes by itself
-every minute. trainspot remembers your last five trips in `~/.config/trainspot` and opens on
-the last one the next time, so your daily trip is one word away.
+arrow keys to see its whole run and where it is now, beside the board in a wide window
+or with enter in a narrow one. `s` swaps the two stations, `e` edits them and `r`
+fetches everything again; it also refreshes by itself every minute. trainspot remembers
+your last five trips in `~/.config/trainspot` and opens on the last one the next time,
+so your daily trip is one word away.
 
 ## Departures
 
-```text
-$ trainspot namur
-  Departures from Namen (Namur)                             Sun 25 Oct 15:15
-
-  Time   Expected  To            Platform  Train     Crowd
-  15:16  15:19 +3  Brussel-Zuid  9         IC 2136   low
-  15:17  on time   Dinant        10        IC 2514
-  15:28  on time   Liers         4         IC 3813   low
-
-  +3 = 3 min late
-  Live NMBS data via iRail, updated 15:15
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/board-dark.png">
+  <img alt="trainspot namur: the departure board of Namen with times, delays, destinations, platforms, trains and how busy they are" src="docs/screenshots/board-light.png">
+</picture>
 
 For every departure the board shows when it is planned and when it really leaves:
 on time, the new time with the minutes late, cancelled or departed. Next to that come
@@ -76,17 +76,10 @@ the marks on the board, and on a narrow terminal the least important columns mak
 
 ## Journeys
 
-```text
-$ trainspot gent sint pieters --to aarlen
-  Gent-Sint-Pieters → Aarlen                                Sun 25 Oct 16:36
-
-  17:13 → 21:22   4h09   1 change
-    17:13     Gent-Sint-Pieters  9   IC 3615 to Leuven
-    18:07     Brussel-Zuid       14
-              change 6 min
-    18:13     Brussel-Zuid       15  IC 2118 to Aarlen
-    21:22     Aarlen             2
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/journeys-cli-dark.png">
+  <img alt="trainspot gent sint pieters --to namen: the next journeys with every stop, platform, train and the time to change" src="docs/screenshots/journeys-cli-light.png">
+</picture>
 
 With `--to`, trainspot lists the next journeys between two stations. Every word after
 `--to` names the destination, so no quotes are needed. Each journey shows when it
