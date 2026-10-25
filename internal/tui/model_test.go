@@ -1338,6 +1338,47 @@ func TestTheRoutesOfTrainsThatLeftAreDropped(t *testing.T) {
 	}
 }
 
+// busyBoard has the long destination, train and crowd that make a board
+// wide.
+func busyBoard() *irail.Liveboard {
+	board := &irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	for i := range 3 {
+		board.Departures = append(board.Departures, irail.Departure{
+			Destination: "Brussels Airport - Zaventem", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Delay: 2 * time.Minute,
+			Platform: "7", PlatformChanged: true, Train: fmt.Sprintf("IC %d", 2219+i), Vehicle: fmt.Sprintf("BE.NMBS.IC%d", 2219+i), Occupancy: "medium",
+		})
+	}
+	return board
+}
+
+func TestABoardWithoutRoomForThePaneKeepsTheWholeWidth(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.board = busyBoard()
+	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
+
+	h.press(letter('d'))
+
+	if row := screenRow(h, "▸ 16:49"); besidePane(row) || !strings.Contains(row, "medium") {
+		t.Errorf("the board gave up a column for a pane: %q", row)
+	}
+	if len(h.src.routes) != 0 {
+		t.Errorf("routes asked for without a pane to show them: %v", h.src.routes)
+	}
+}
+
+func TestAWideBoardKeepsEveryColumnBesideThePane(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.board = busyBoard()
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 30})
+
+	h.press(letter('d'))
+
+	if row := screenRow(h, "▸ 16:49"); !besidePane(row) || !strings.Contains(row, "Brussels Airport - Zaventem") || !strings.Contains(row, "medium") {
+		t.Errorf("the board beside the pane lost a column or its destination: %q", row)
+	}
+	h.wantOnScreen("IC 2219 to Brussels Airport - Zaventem")
+}
+
 func TestANarrowBoardFetchesNoRouteUntilAsked(t *testing.T) {
 	h := newHarness(t, gentID, aarlenID)
 	h.src.departures = 3

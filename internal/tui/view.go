@@ -352,7 +352,7 @@ func (m Model) departuresBody(width, room int) []string {
 	case m.board.Updated.IsZero() && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
-	left := boardWidth(width)
+	left := m.boardWidth(width)
 	head, rows, tail, shown := m.departuresView(left, room)
 	if left == width {
 		return append(head, scrollBody(rows, tail, shown, m.boardScroll)...)
@@ -384,7 +384,7 @@ func (m Model) departuresView(width, room int) (head, rows, tail []string, shown
 func (m *Model) showBoardChoice() {
 	m.boardChoice = max(0, min(m.boardChoice, len(m.board.Departures)-1))
 	width, room := m.inside()
-	_, rows, _, shown := m.departuresView(boardWidth(width), room)
+	_, rows, _, shown := m.departuresView(m.boardWidth(width), room)
 	if m.boardChoice < m.boardScroll {
 		m.boardScroll = m.boardChoice
 	}
