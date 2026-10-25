@@ -94,7 +94,8 @@ func readCache(path string) (cacheFile, error) {
 	return c, nil
 }
 
-// writeCache writes through a temporary file, so a crash never leaves a
+// writeCache writes through a temporary file that reaches the disk before
+// it replaces the list, so neither a crash nor a power cut leaves a
 // half-written list behind.
 func writeCache(path string, c cacheFile) error {
 	data, err := json.Marshal(c)
@@ -110,6 +111,10 @@ func writeCache(path string, c cacheFile) error {
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
 	}
