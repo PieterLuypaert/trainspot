@@ -44,15 +44,28 @@ func (m Model) render() string {
 		width, height = defaultWidth, defaultHeight
 	}
 	width, height = max(width, minWidth), max(height, minHeight)
-	inner := width - 4
+	inner, room := width-4, height-2
 	clock := faint.Render(m.cfg.Now().In(m.cfg.Location).Format("Mon 2 Jan 15:04"))
 	switch m.screen {
 	case journeys:
-		return frame(m.tripTitle(), clock, m.journeysBody(inner), journeyKeys, width, height)
+		main, tail := m.journeysBody(inner)
+		return frame(m.tripTitle(), clock, fitBody(main, tail, room), journeyKeys, width, height)
 	case departures:
-		return frame(m.departuresTitle(), clock, m.departuresBody(inner), departureKeys, width, height)
+		main, tail := m.departuresBody(inner)
+		return frame(m.departuresTitle(), clock, fitBody(main, tail, room), departureKeys, width, height)
 	}
 	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
+}
+
+// fitBody keeps the tail, the legend and status line, in view and cuts
+// the main part to the room left, saying how much it left out.
+func fitBody(main, tail []string, room int) []string {
+	if len(main)+len(tail) <= room {
+		return append(main, tail...)
+	}
+	keep := max(0, room-len(tail)-1)
+	note := indent + faint.Render(fmt.Sprintf("… %d more lines; a taller window shows them", len(main)-keep))
+	return append(append(main[:keep:keep], note), tail...)
 }
 
 var (
@@ -158,15 +171,17 @@ func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string
 	return marker + name + "  " + faint.Render(strings.Join(notes, " · "))
 }
 
-func (m Model) journeysBody(width int) []string {
+// journeysBody returns the list with the chosen journey's stops, and the
+// legend and status line that must stay in view.
+func (m Model) journeysBody(width int) (main, tail []string) {
 	list := m.trip.Journeys
 	switch {
 	case len(list) == 0 && m.loading():
-		return []string{"", indent + faint.Render("Looking up journeys…")}
+		return []string{"", indent + faint.Render("Looking up journeys…")}, nil
 	case len(list) == 0 && m.err != nil:
-		return []string{"", indent + alarm.Render("Could not get the journeys: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
+		return []string{"", indent + alarm.Render("Could not get the journeys: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
 	case len(list) == 0:
-		return []string{"", indent + "No journeys found."}
+		return []string{"", indent + "No journeys found."}, nil
 	}
 	lines := board.LayOutJourneys(list, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Updated: m.trip.Updated, Location: m.cfg.Location})
 	body := []string{""}
@@ -180,21 +195,20 @@ func (m Model) journeysBody(width int) []string {
 	// The rule sets the selected journey's stops apart from the list.
 	rule := indent + faint.Render(strings.Repeat("─", max(0, width-2*len(indent))))
 	body = append(append(body, rule), lines.Stops[m.selected]...)
-	body = append(append(body, ""), lines.Legend...)
-	return append(body, m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
+	tail = append(append([]string{""}, lines.Legend...), m.status(board.Footer(m.trip.Updated, m.cfg.Location)))
+	return body, tail
 }
 
-func (m Model) departuresBody(width int) []string {
+func (m Model) departuresBody(width int) (main, tail []string) {
 	switch {
 	case m.board.Updated.IsZero() && m.loading():
-		return []string{"", indent + faint.Render("Looking up departures…")}
+		return []string{"", indent + faint.Render("Looking up departures…")}, nil
 	case m.board.Updated.IsZero() && m.err != nil:
-		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
+		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
 	}
 	rows, legend := board.DepartureLines(m.board, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
-	body := append([]string{""}, rows...)
-	body = append(append(body, ""), legend...)
-	return append(body, m.status(board.Footer(m.board.Updated, m.cfg.Location)))
+	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.board.Updated, m.cfg.Location)))
+	return append([]string{""}, rows...), tail
 }
 
 // status is the source line, or what is happening instead: a refresh on

@@ -59,6 +59,8 @@ type fakeSource struct {
 	tripErr, boardErr error
 	// firstGone leaves the first journey out, as when it has left.
 	firstGone bool
+	// departures is how many departures the board lists; one when zero.
+	departures int
 }
 
 func (f *fakeSource) Journeys(_ context.Context, fromID, toID, _ string) (irail.Trip, error) {
@@ -78,9 +80,13 @@ func (f *fakeSource) Liveboard(_ context.Context, stationID, _ string) (irail.Li
 	if f.boardErr != nil {
 		return irail.Liveboard{}, f.boardErr
 	}
-	return irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36"), Departures: []irail.Departure{
-		{Destination: "Oostende", Scheduled: at("16:49"), Platform: "11", Train: "IC 535"},
-	}}, nil
+	board := irail.Liveboard{Station: "Gent-Sint-Pieters", Updated: at("16:36")}
+	for i := range max(1, f.departures) {
+		board.Departures = append(board.Departures, irail.Departure{
+			Destination: "Oostende", Scheduled: at("16:49").Add(time.Duration(i) * time.Minute), Delay: 2 * time.Minute, Platform: "11", Train: "IC 535",
+		})
+	}
+	return board, nil
 }
 
 type harness struct {
@@ -423,6 +429,19 @@ func TestFillsTheTerminalExactly(t *testing.T) {
 				t.Errorf("%dx%d: line is %d wide: %q", size[0], size[1], w, l)
 			}
 		}
+	}
+}
+
+func TestKeepsTheLegendAndStatusInViewOnAFullBoard(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.src.departures = 30
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	h.press(letter('d'))
+
+	h.wantOnScreen("+2 = 2 min late", "Live NMBS data via iRail, updated 16:36", "more lines; a taller window shows them")
+	if lines := strings.Split(h.screen(), "\n"); len(lines) != 24 {
+		t.Errorf("%d lines, want 24", len(lines))
 	}
 }
 
