@@ -15,10 +15,11 @@ import (
 	"github.com/PieterLuypaert/trainspot/internal/stations"
 )
 
-// Source is where the screen gets its journeys and departures.
+// Source is where the screen gets its journeys, departures and routes.
 type Source interface {
 	Journeys(ctx context.Context, fromID, toID, lang string) (irail.Trip, error)
 	Liveboard(ctx context.Context, stationID, lang string) (irail.Liveboard, error)
+	Route(ctx context.Context, vehicleID string, day time.Time, lang string) (irail.Route, error)
 }
 
 type Config struct {
@@ -45,6 +46,8 @@ const (
 	departures
 	// stops shows every stop of the chosen journey.
 	stops
+	// route shows the whole run of a train chosen on the board.
+	route
 )
 
 const (
@@ -79,8 +82,16 @@ type Model struct {
 	scroll int
 	// left holds the journey on the stops screen once it has left iRail's
 	// list, which only has journeys still to come, so the screen keeps it
-	// instead of jumping to another train.
-	left *irail.Journey
+	// and follows its trains instead; leftAt is when it was last followed.
+	left   *irail.Journey
+	leftAt time.Time
+	// boardChoice is the chosen departure and boardScroll the first one
+	// shown.
+	boardChoice, boardScroll int
+	// route is the run of routeOf, the departure chosen on the board.
+	route   irail.Route
+	routeOf irail.Departure
+	routeAt time.Time
 
 	// waiting is the id of the fetch the screen waits for, or 0. An answer
 	// to any other fetch, such as one for a screen the user has left, is
@@ -153,8 +164,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	m = next.(Model)
 	// A resize or a refresh can shorten what there is to scroll through.
-	if m.screen == stops {
+	switch m.screen {
+	case stops, route:
 		m.scroll = min(m.scroll, m.maxScroll())
+	case departures:
+		m.showBoardChoice()
 	}
 	return m, cmd
 }
@@ -166,9 +180,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m.refresh()
 	case tripMsg:
-		m.gotTrip(msg)
+		if m.gotTrip(msg) {
+			fetch := m.fetchFollow()
+			return m, fetch
+		}
 	case boardMsg:
 		m.gotBoard(msg)
+	case routeMsg:
+		m.gotRoute(msg)
+	case followMsg:
+		m.gotFollow(msg)
 	case tea.PasteMsg:
 		if m.screen == planning {
 			m.typed(msg.Content)
@@ -190,6 +211,8 @@ func (m Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.journeysKey(k)
 	case stops:
 		return m.stopsKey(k)
+	case route:
+		return m.routeKey(k)
 	}
 	return m.departuresKey(k)
 }
@@ -201,14 +224,22 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	if m.loading() || !m.stale(m.triedAt) {
 		return m, next
 	}
-	var fetch tea.Cmd
-	switch m.screen {
-	case journeys, stops:
-		fetch = m.fetchTrip()
-	case departures:
-		fetch = m.fetchBoard()
+	return m, tea.Batch(m.fetch(), next)
+}
+
+// fetch asks iRail for what the screen on view shows.
+func (m *Model) fetch() tea.Cmd {
+	switch {
+	case m.screen == departures:
+		return m.fetchBoard()
+	case m.screen == route:
+		return m.fetchRoute()
+	case m.screen == stops && m.left != nil:
+		return m.fetchFollow()
+	case m.screen == journeys || m.screen == stops:
+		return m.fetchTrip()
 	}
-	return m, tea.Batch(fetch, next)
+	return nil
 }
 
 func (m Model) planningKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -323,7 +354,7 @@ func (m *Model) setTrip(from, to stations.Station) {
 // note of the screen before behind, and fetch only data that is not fresh.
 
 func (m Model) toJourneys() (tea.Model, tea.Cmd) {
-	m.screen, m.waiting, m.err, m.note, m.left = journeys, 0, nil, "", nil
+	m.screen, m.waiting, m.err, m.note, m.left, m.leftAt = journeys, 0, nil, "", nil, time.Time{}
 	if !m.stale(m.tripAt) {
 		return m, nil
 	}
@@ -363,7 +394,7 @@ func (m Model) journeysKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toDepartures()
 	case "enter", "right", "l":
 		if len(m.trip.Journeys) > 0 {
-			m.screen, m.scroll, m.note, m.left = stops, 0, "", nil
+			m.screen, m.scroll, m.note, m.left, m.leftAt = stops, 0, "", nil, time.Time{}
 		}
 	case "r":
 		return m.fetchAgain()
@@ -377,18 +408,10 @@ func (m Model) stopsKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "left", "h", "backspace":
 		return m.toJourneys()
-	case "up", "k":
-		m.scroll = max(0, m.scroll-1)
-	case "down", "j":
-		m.scroll++
-	case "pgup":
-		m.scroll = max(0, m.scroll-m.page())
-	case "pgdown", "space":
-		m.scroll += m.page()
 	case "r":
 		return m.fetchAgain()
 	}
-	return m, nil
+	return m.scrollKey(k), nil
 }
 
 func (m Model) departuresKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -401,6 +424,14 @@ func (m Model) departuresKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toPlanning()
 	case "r":
 		return m.fetchAgain()
+	case "up", "k":
+		m.boardChoice = max(0, m.boardChoice-1)
+	case "down", "j":
+		m.boardChoice = max(0, min(len(m.board.Departures)-1, m.boardChoice+1))
+	case "enter", "right", "l":
+		if m.boardChoice < len(m.board.Departures) {
+			return m.toRoute(m.board.Departures[m.boardChoice])
+		}
 	}
 	return m, nil
 }
@@ -410,12 +441,7 @@ func (m Model) fetchAgain() (tea.Model, tea.Cmd) {
 	if m.loading() {
 		return m, nil
 	}
-	var fetch tea.Cmd
-	if m.screen == departures {
-		fetch = m.fetchBoard()
-	} else {
-		fetch = m.fetchTrip()
-	}
+	fetch := m.fetch()
 	return m, fetch
 }
 
@@ -443,23 +469,26 @@ func (m *Model) fetchBoard() tea.Cmd {
 }
 
 // gotTrip takes the answer the screen waits for. A failed refresh keeps
-// the journeys already shown.
-func (m *Model) gotTrip(msg tripMsg) {
+// the journeys already shown. It reports true when the journey on the
+// stops screen has just left the list, so the screen starts to follow it.
+func (m *Model) gotTrip(msg tripMsg) bool {
 	if msg.id != m.waiting {
-		return
+		return false
 	}
 	m.waiting, m.err = 0, msg.err
 	if msg.err != nil {
-		return
+		return false
 	}
 	var chosen *irail.Journey
 	if m.selected < len(m.trip.Journeys) {
 		chosen = &m.trip.Journeys[m.selected]
 	}
-	if !m.keepChoice(msg.trip) && m.screen == stops && m.left == nil {
+	pinned := !m.keepChoice(msg.trip) && m.screen == stops && m.left == nil && chosen != nil
+	if pinned {
 		m.left = chosen
 	}
 	m.trip, m.tripAt = msg.trip, m.cfg.Now()
+	return pinned
 }
 
 // shownJourney is the journey on the stops screen: the chosen one, or the
@@ -499,6 +528,7 @@ func (m *Model) gotBoard(msg boardMsg) {
 	}
 	m.waiting, m.err = 0, msg.err
 	if msg.err == nil {
+		m.keepBoardChoice(msg.board)
 		m.board, m.boardAt = msg.board, m.cfg.Now()
 	}
 }

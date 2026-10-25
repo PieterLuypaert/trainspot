@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -59,11 +60,13 @@ func (m Model) render() string {
 		main, tail := m.journeysBody(inner)
 		return frame(m.tripTitle(), clock, fitBody(main, tail, room), journeyKeys, width, height)
 	case departures:
-		main, tail := m.departuresBody(inner)
-		return frame(m.departuresTitle(), clock, fitBody(main, tail, room), departureKeys, width, height)
+		return frame(m.departuresTitle(), clock, m.departuresBody(inner, room), departureKeys, width, height)
 	case stops:
-		main, tail, shown := m.stopsView()
+		main, tail, shown := m.scrollView()
 		return frame(m.stopsTitle(), clock, scrollBody(main, tail, shown, m.scroll), stopKeys, width, height)
+	case route:
+		main, tail, shown := m.scrollView()
+		return frame(m.routeTitle(), clock, scrollBody(main, tail, shown, m.scroll), routeKeys, width, height)
 	}
 	return frame(bold.Render("Plan a trip"), clock, m.planningBody(inner), m.planningKeys(), width, height)
 }
@@ -82,8 +85,10 @@ func fitBody(main, tail []string, room int) []string {
 var (
 	journeyKeys = []key{{name: "↑↓", does: "choose"}, {name: "enter", does: "stops"}, {name: "d", does: "departures"},
 		{name: "e", does: "edit"}, {name: "s", does: "swap"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
-	departureKeys = []key{{name: "esc", does: "journeys"}, {name: "e", does: "edit"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
-	stopKeys      = []key{{name: "↑↓", does: "scroll"}, {name: "esc", does: "journeys"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
+	departureKeys = []key{{name: "↑↓", does: "choose"}, {name: "enter", does: "route"}, {name: "esc", does: "journeys"},
+		{name: "e", does: "edit", optional: true}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
+	stopKeys  = []key{{name: "↑↓", does: "scroll"}, {name: "esc", does: "journeys"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
+	routeKeys = []key{{name: "↑↓", does: "scroll"}, {name: "esc", does: "departures"}, {name: "r", does: "refresh", optional: true}, {name: "q", does: "quit"}}
 )
 
 func (m Model) planningKeys() []key {
@@ -212,16 +217,70 @@ func (m Model) journeysBody(width int) (main, tail []string) {
 	return body, tail
 }
 
-func (m Model) departuresBody(width int) (main, tail []string) {
+// departuresBody shows the board with the chosen departure marked, the
+// rows around it when they do not all fit, and the legend and status line.
+func (m Model) departuresBody(width, room int) []string {
 	switch {
 	case m.board.Updated.IsZero() && m.loading():
-		return []string{"", indent + faint.Render("Looking up departures…")}, nil
+		return []string{"", indent + faint.Render("Looking up departures…")}
 	case m.board.Updated.IsZero() && m.err != nil:
-		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
+		return []string{"", indent + alarm.Render("Could not get the departures: "+m.err.Error()), indent + faint.Render("Press r to try again.")}
 	}
-	rows, legend := board.DepartureLines(m.board, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	head, rows, tail, shown := m.departuresView(width, room)
+	if shown >= len(rows) {
+		return append(append(head, rows...), tail...)
+	}
+	first := max(0, min(m.boardScroll, len(rows)-shown))
+	body := append(append(head, rows[first:first+shown]...), moreLine(first, len(rows)-first-shown))
+	return append(body, tail...)
+}
+
+// departuresView lays the board out for the window: the column titles,
+// the rows with the chosen one marked, the legend and status line, and how
+// many rows fit.
+func (m Model) departuresView(width, room int) (head, rows, tail []string, shown int) {
+	lines, legend := board.DepartureLines(m.board, board.Options{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	head, rows = []string{"", lines[0]}, slices.Clone(lines[1:])
+	if len(m.board.Departures) == 0 {
+		rows = nil
+	}
+	for i := range rows {
+		if i == m.boardChoice {
+			rows[i] = bold.Render("▸ ") + strings.TrimPrefix(rows[i], indent)
+		}
+	}
 	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.board.Updated, m.cfg.Location)))
-	return append([]string{""}, rows...), tail
+	if space := room - len(head) - len(tail); len(rows) > space {
+		return head, rows, tail, max(0, space-1)
+	}
+	return head, rows, tail, len(rows)
+}
+
+// showBoardChoice scrolls the board just enough to keep the chosen
+// departure in view.
+func (m *Model) showBoardChoice() {
+	m.boardChoice = max(0, min(m.boardChoice, len(m.board.Departures)-1))
+	width, height := m.size()
+	_, rows, _, shown := m.departuresView(width-4, height-2)
+	if m.boardChoice < m.boardScroll {
+		m.boardScroll = m.boardChoice
+	}
+	if shown > 0 && m.boardChoice >= m.boardScroll+shown {
+		m.boardScroll = m.boardChoice - shown + 1
+	}
+	m.boardScroll = max(0, min(m.boardScroll, len(rows)-shown))
+}
+
+// moreLine says how many lines lie above and below what shows.
+func moreLine(above, below int) string {
+	var where []string
+	if above > 0 {
+		where = append(where, fmt.Sprintf("↑ %d more", above))
+	}
+	if below > 0 {
+		where = append(where, fmt.Sprintf("↓ %d more", below))
+	}
+	return indent + faint.Render(strings.Join(where, "  "))
 }
 
 // status is the source line, or what is happening instead: a refresh on
@@ -307,18 +366,50 @@ func (m Model) stopsTitle() string {
 func (m Model) stopsBody(width int) (main, tail []string) {
 	lines, legend := board.JourneyStops(m.shownJourney(), board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
 	source := board.Footer(m.trip.Updated, m.cfg.Location)
-	if m.left != nil {
-		source = indent + faint.Render("Its train has left, so iRail no longer lists this journey; these stops stay as they were.")
+	switch {
+	case m.left != nil && m.leftAt.IsZero():
+		source = indent + faint.Render("Its train has left iRail's list of journeys, so trainspot follows the train itself.")
+	case m.left != nil:
+		source = indent + faint.Render("Following the train live, updated "+m.leftAt.In(m.cfg.Location).Format("15:04"))
 	}
 	tail = append(append([]string{""}, legend...), m.status(source))
 	return append([]string{""}, lines...), tail
 }
 
-// stopsView lays the stops screen out once for the window: the lines, the
-// part that stays in view, and how many lines show above that part.
-func (m Model) stopsView() (main, tail []string, shown int) {
+// routeTitle names the train, where it heads, and when it leaves the
+// station of the board.
+func (m Model) routeTitle() string {
+	d := m.routeOf
+	return bold.Render(d.Train) + faint.Render(" to "+d.Destination) + faint.Render(" · from ") +
+		m.from.Name(m.cfg.Lang) + " " + bold.Render(d.Scheduled.In(m.cfg.Location).Format("15:04"))
+}
+
+// routeBody returns every stop of the chosen train's run, and the legend
+// and status line that must stay in view.
+func (m Model) routeBody(width int) (main, tail []string) {
+	switch {
+	case len(m.route.Stops) == 0 && m.loading():
+		return []string{"", indent + faint.Render("Looking up the train's route…")}, nil
+	case len(m.route.Stops) == 0 && m.err != nil:
+		return []string{"", indent + alarm.Render("Could not get the train's route: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
+	case len(m.route.Stops) < 2:
+		return []string{"", indent + "iRail has no route for this train."}, nil
+	}
+	lines, legend := board.RouteStops(m.route, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location})
+	tail = append(append([]string{""}, legend...), m.status(board.Footer(m.route.Updated, m.cfg.Location)))
+	return append([]string{""}, lines...), tail
+}
+
+// scrollView lays the stops or the route out once for the window: the
+// lines, the part that stays in view, and how many lines show above that
+// part.
+func (m Model) scrollView() (main, tail []string, shown int) {
 	width, height := m.size()
-	main, tail = m.stopsBody(width - 4)
+	if m.screen == route {
+		main, tail = m.routeBody(width - 4)
+	} else {
+		main, tail = m.stopsBody(width - 4)
+	}
 	if space := height - 2 - len(tail); len(main) > space {
 		return main, tail, max(0, space-1)
 	}
@@ -332,26 +423,18 @@ func scrollBody(main, tail []string, shown, scroll int) []string {
 		return append(main, tail...)
 	}
 	scroll = max(0, min(scroll, len(main)-shown))
-	view := append([]string{}, main[scroll:scroll+shown]...)
-	var where []string
-	if scroll > 0 {
-		where = append(where, fmt.Sprintf("↑ %d more", scroll))
-	}
-	if below := len(main) - scroll - shown; below > 0 {
-		where = append(where, fmt.Sprintf("↓ %d more", below))
-	}
-	view = append(view, indent+faint.Render(strings.Join(where, "  ")))
+	view := append(append([]string{}, main[scroll:scroll+shown]...), moreLine(scroll, len(main)-scroll-shown))
 	return append(view, tail...)
 }
 
 // maxScroll is how far the stops can scroll in the current window.
 func (m Model) maxScroll() int {
-	main, _, shown := m.stopsView()
+	main, _, shown := m.scrollView()
 	return max(0, len(main)-shown)
 }
 
 // page is how many lines a page up or down moves: as many as show.
 func (m Model) page() int {
-	_, _, shown := m.stopsView()
+	_, _, shown := m.scrollView()
 	return max(1, shown)
 }
