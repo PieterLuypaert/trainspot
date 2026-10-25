@@ -873,20 +873,160 @@ func TestTheFormShowsTheNextDeparturesFromTheChosenStation(t *testing.T) {
 	}
 }
 
-func TestAWideFormHasItsSidePaneBesideIt(t *testing.T) {
+func TestAWideFormHasTheDeparturesBesideItAndTheRecentTripsUnderIt(t *testing.T) {
 	h := twoRecentTrips(t)
 	h.send(tea.WindowSizeMsg{Width: 130, Height: 30})
 
+	if from := screenRow(h, "From  Gent-Sint-Pieters"); !strings.Contains(from, "Next from Gent-Sint-Pieters") {
+		t.Errorf("the departures are not beside the form: %q", from)
+	}
+	recent := strings.TrimPrefix(screenRow(h, "Recent trips"), "│")
+	if divider := strings.Index(recent, "│"); divider == strings.LastIndex(recent, "│") || strings.Index(recent, "Recent trips") > divider {
+		t.Errorf("the recent trips are not under the form, left of the divider: %q", recent)
+	}
+}
+
+// screenRow is the last row of the screen that holds text.
+func screenRow(h *harness, text string) string {
 	var row string
 	for _, l := range strings.Split(h.screen(), "\n") {
-		if strings.Contains(l, "From  Gent-Sint-Pieters") {
+		if strings.Contains(l, text) {
 			row = l
 		}
 	}
-	if !strings.Contains(row, "Recent trips") {
-		t.Errorf("the recent trips are not beside the form: %q", row)
+	return row
+}
+
+func manyBrusselStations() *stations.Directory {
+	var list []stations.Station
+	for i, name := range []string{"Centraal", "Congres", "Kapellekerk", "Luxemburg", "Noord", "Schuman", "West", "Zuid"} {
+		list = append(list, stations.Station{ID: fmt.Sprintf("BE.NMBS.0088100%02d", i), Names: map[string]string{"nl": "Brussel-" + name}, Standard: "Brussel-" + name})
 	}
-	h.wantOnScreen("Next from Gent-Sint-Pieters")
+	return stations.NewDirectory(list)
+}
+
+func TestTheFormSuggestsEveryStationThatFits(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = manyBrusselStations()
+
+	h.typeText("brus")
+
+	h.wantOnScreen("Brussel-Centraal", "Brussel-West", "Brussel-Zuid")
+	if strings.Contains(h.screen(), "more; type more of the name") {
+		t.Errorf("a window with room for all says some are left out:\n%s", h.screen())
+	}
+}
+
+func TestAShrunkWindowKeepsTheChosenSuggestionInView(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = manyBrusselStations()
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 40})
+	h.typeText("brus")
+	for range 7 {
+		h.press(down)
+	}
+
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	h.wantOnScreen("▸ Brussel-Noord")
+	h.press(enter)
+	h.wantOnScreen("From  Brussel-Noord")
+}
+
+func TestTheDeparturesUnderANarrowFormStayWhileItSuggests(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	h.press(letter('e'), tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.m.cfg.Stations = numberedBrusselStations(25)
+
+	h.typeText("brus")
+
+	h.wantOnScreen("more; type more of the name", "Next from Gent-Sint-Pieters", "IC 535", "Live NMBS data via iRail")
+}
+
+func TestLongRecentTripsStillTellApart(t *testing.T) {
+	h := newHarness(t, gentID, aarlenID)
+	airport := "BE.NMBS.008819406"
+	h.m.cfg.Stations = stations.NewDirectory([]stations.Station{
+		{ID: airport, Names: map[string]string{"nl": "Brussels Airport - Zaventem"}, Standard: "Brussels Airport - Zaventem"},
+		{ID: gentID, Names: map[string]string{"nl": "Gent-Sint-Pieters"}, Standard: "Gent-Sint-Pieters"},
+		{ID: "BE.NMBS.008893120", Names: map[string]string{"nl": "Gent-Dampoort"}, Standard: "Gent-Dampoort"},
+	})
+	h.m.setRecent(Trips{{From: airport, To: gentID}, {From: airport, To: "BE.NMBS.008893120"}})
+
+	h.send(tea.WindowSizeMsg{Width: 104, Height: 30})
+	h.press(letter('e'))
+
+	h.wantOnScreen("1  Brussels Airport - Zaventem", "→ Gent-Sint-Pieters", "→ Gent-Dampoort")
+}
+
+func TestTheRecentTripsMakeWayForSuggestions(t *testing.T) {
+	h := twoRecentTrips(t)
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+
+	h.typeText("gen")
+	if strings.Contains(h.screen(), "Recent trips") {
+		t.Errorf("the recent trips show while numbers would be typed:\n%s", h.screen())
+	}
+
+	h.press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	h.wantOnScreen("Recent trips", "1  Gent-Sint-Pieters → Aarlen")
+}
+
+func TestALongNameGoesWithoutNotesInANarrowForm(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = stations.NewDirectory([]stations.Station{
+		{ID: brusselID, Names: map[string]string{"nl": "Brussel-Zuid", "fr": "Bruxelles-Midi"}, Standard: "Brussel-Zuid/Bruxelles-Midi"},
+		{ID: "BE.NMBS.008819406", Names: map[string]string{"nl": "Brussels Airport - Zaventem", "fr": "Bruxelles-Aéroport - Zaventem"}, Standard: "Brussels Airport - Zaventem/Bruxelles-Aéroport - Zaventem"},
+	})
+	h.send(tea.WindowSizeMsg{Width: 110, Height: 30})
+
+	h.typeText("bru")
+
+	h.wantOnScreen("Brussel-Zuid", "Bruxelles-Midi", "Brussels Airport - Zaventem")
+	if strings.Contains(h.screen(), "Br…") || strings.Contains(h.screen(), "Bruxelles-Aéroport") {
+		t.Errorf("a name too long for its notes shows a stub of them:\n%s", h.screen())
+	}
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
+	h.wantOnScreen("Bruxelles-Aéroport - Zaventem")
+}
+
+func numberedBrusselStations(n int) *stations.Directory {
+	var list []stations.Station
+	for i := range n {
+		list = append(list, stations.Station{ID: fmt.Sprintf("BE.NMBS.0088200%02d", i), Names: map[string]string{"nl": fmt.Sprintf("Brussel-%02d", i)}, Standard: fmt.Sprintf("Brussel-%02d", i)})
+	}
+	return stations.NewDirectory(list)
+}
+
+func TestARefusedSearchSaysWhyBesideTheSuggestions(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = numberedBrusselStations(25)
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 24})
+	h.typeText("brus")
+	h.press(enter)
+	h.typeText("brus")
+
+	h.press(enter)
+	h.wantOnScreen("From and To are the same station")
+
+	h.press(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	h.wantOnScreen("From and To are the same station", "Brussel-00", "more; type more of the name")
+}
+
+func TestASmallWindowSaysHowManySuggestionsAreLeftOut(t *testing.T) {
+	h := newHarness(t, "", "")
+	h.m.cfg.Stations = manyBrusselStations()
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 12})
+	h.typeText("brus")
+
+	h.wantOnScreen("Brussel-Noord", "… 3 more; type more of the name", "To    station name")
+	for range 10 {
+		h.press(down)
+	}
+	h.press(enter)
+
+	h.wantOnScreen("From  Brussel-Noord")
 }
 
 // sendOnly updates the model without running the commands it returns, as

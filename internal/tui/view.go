@@ -113,17 +113,32 @@ func (m Model) departuresTitle() string {
 	return title
 }
 
-// planningBody puts the form on the left and, beside it in a wide window
-// or under it in a narrow one, the recent trips and the next departures
-// from the station in the From field.
+// planningBody puts the form with the recent trips under it on the left
+// and, beside it in a wide window or under it in a narrow one, the next
+// departures from the station in the From field. The departures take the
+// larger part, so the board keeps its columns.
 func (m Model) planningBody(width, room int) []string {
-	if width >= twoPanesWidth {
-		formWidth := width / 2
-		return sideBySide(m.formLines(formWidth), m.planningSide(width-formWidth-lipgloss.Width(divider), room), formWidth)
+	left := formWidth(width)
+	form := append(m.formLines(left), m.recentLines(left)...)
+	if left == width {
+		return append(form, m.planningSide(width, room-len(form))...)
 	}
-	form := m.formLines(width)
-	return append(form, m.planningSide(width, room-len(form))...)
+	return sideBySide(form, m.planningSide(width-left-lipgloss.Width(divider), room), left)
 }
+
+// formWidth is how wide the form is: all of width in a narrow window, two
+// fifths of it beside the departures in a wide one.
+func formWidth(width int) int {
+	if width < twoPanesWidth {
+		return width
+	}
+	return width * 2 / 5
+}
+
+// narrowSideRows are the rows the departures under a narrow form keep
+// while it suggests stations: enough for the title, the column titles,
+// two departures, the legend and the status line.
+const narrowSideRows = 9
 
 func (m Model) formLines(width int) []string {
 	body := []string{""}
@@ -182,19 +197,56 @@ func (m Model) suggestionLines(width int) []string {
 		}
 		lines = append(lines, pad+faint.Render(fmt.Sprintf("no station is called %q; did you mean:", query)))
 	}
+	shown := list[:m.shownSuggestions()]
+	// The local names and "abroad" line up after the names that leave them
+	// room; a longer name goes without them rather than show a stub.
+	noteRoom := width - len(pad) - 2 - 2 - minNotesWidth
 	nameWidth := 0
-	for _, s := range list {
-		nameWidth = max(nameWidth, lipgloss.Width(s.Name(m.cfg.Lang)))
+	for _, s := range shown {
+		if w := lipgloss.Width(s.Name(m.cfg.Lang)); w <= noteRoom {
+			nameWidth = max(nameWidth, w)
+		}
 	}
-	for i, s := range list {
+	for i, s := range shown {
 		lines = append(lines, ansi.Truncate(pad+m.suggestion(s, i == m.choice, nameWidth), width, "…"))
+	}
+	if more := len(list) - len(shown); more > 0 {
+		lines = append(lines, pad+faint.Render(fmt.Sprintf("… %d more; type more of the name", more)))
 	}
 	return lines
 }
 
+// shownSuggestions is how many suggestions the form shows: all that fit,
+// and at least minSuggestions rows. The recent trips make way while the
+// form suggests, and the departures under a narrow form keep
+// narrowSideRows.
+func (m Model) shownSuggestions() int {
+	width, room := m.inside()
+	// The blank line over the fields and the two fields take three rows,
+	// and a note under them the rows it wraps to after a blank line.
+	space := room - 3
+	if m.note != "" {
+		space -= 1 + len(wrap(m.note, formWidth(width), alarm))
+	}
+	if formWidth(width) == width {
+		space -= narrowSideRows
+	}
+	if len(m.suggested) <= space {
+		return len(m.suggested)
+	}
+	// One of the rows says how many are left out.
+	return min(len(m.suggested), max(minSuggestions, space)-1)
+}
+
+// minNotesWidth is the least room a suggestion's notes get.
+const minNotesWidth = 8
+
+// suggestion is a station to pick, with its notes after the name column
+// nameWidth when its name fits that column.
 func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string {
 	name := s.Name(m.cfg.Lang)
-	name += strings.Repeat(" ", nameWidth-lipgloss.Width(name))
+	withNotes := lipgloss.Width(name) <= nameWidth
+	name += strings.Repeat(" ", max(0, nameWidth-lipgloss.Width(name)))
 	marker := "  "
 	if chosen {
 		marker, name = bold.Render("▸ "), bold.Render(name)
@@ -206,7 +258,7 @@ func (m Model) suggestion(s stations.Station, chosen bool, nameWidth int) string
 	if !s.Belgian() {
 		notes = append(notes, "abroad")
 	}
-	if len(notes) == 0 {
+	if len(notes) == 0 || !withNotes {
 		return strings.TrimRight(marker+name, " ")
 	}
 	return marker + name + "  " + faint.Render(strings.Join(notes, " · "))
