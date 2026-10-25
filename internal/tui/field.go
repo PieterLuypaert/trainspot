@@ -41,7 +41,7 @@ func (f *field) backspace() {
 }
 
 func (f *field) deleteWord() {
-	trimmed := strings.TrimRight(f.text, " ")
+	trimmed := strings.TrimRight(f.text, " -")
 	f.text, f.station = trimmed[:strings.LastIndexAny(trimmed, " -")+1], nil
 }
 

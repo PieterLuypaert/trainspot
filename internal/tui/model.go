@@ -249,15 +249,17 @@ func (m Model) suggestions() (list []stations.Station, typos bool) {
 }
 
 // confirm picks the highlighted suggestion and moves to the other field.
-// With search, it looks up the journeys once both fields hold a station.
+// With search, it looks up the journeys once both fields hold a station;
+// without, it moves on even when there is nothing to pick.
 func (m Model) confirm(search bool) (tea.Model, tea.Cmd) {
 	f := &m.fields[m.focus]
 	if f.station == nil {
 		list, _ := m.suggestions()
-		if len(list) == 0 {
+		if len(list) > 0 {
+			f.pick(list[min(m.choice, len(list)-1)], m.cfg.Lang)
+		} else if search {
 			return m, nil
 		}
-		f.pick(list[min(m.choice, len(list)-1)], m.cfg.Lang)
 	}
 	m.choice = 0
 	from, to := m.fields[0].station, m.fields[1].station

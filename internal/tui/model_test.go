@@ -461,4 +461,32 @@ func TestFieldEditing(t *testing.T) {
 	h.wantOnScreen("From  gent dampoort ▌", "▸ Gent-Dampoort")
 	h.press(tab)
 	h.wantOnScreen("From  Gent-Dampoort", "To    ▌")
+
+	h.typeText("brussel-")
+	h.press(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	h.wantOnScreen("To    ▌")
+}
+
+func TestTabMovesOnFromAnEmptyField(t *testing.T) {
+	h := newHarness(t, "", "")
+
+	h.press(tab)
+	h.wantOnScreen("From  station name", "To    ▌")
+
+	h.typeText("xyzzy")
+	h.press(tab)
+	h.wantOnScreen("From  ▌", "To    xyzzy")
+}
+
+func TestCtrlWWalksBackThroughAPickedName(t *testing.T) {
+	f := field{}
+	f.pick(stations.Station{ID: gentID, Names: map[string]string{"nl": "Gent-Sint-Pieters"}}, "nl")
+	var steps []string
+	for range 3 {
+		f.deleteWord()
+		steps = append(steps, f.text)
+	}
+	if strings.Join(steps, "|") != "Gent-Sint-|Gent-|" {
+		t.Errorf("ctrl+w steps = %q", steps)
+	}
 }
