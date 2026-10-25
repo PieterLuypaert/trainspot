@@ -78,8 +78,9 @@ func main() {
 	stdout := colorprofile.NewWriter(os.Stdout, os.Environ())
 	stderr := colorprofile.NewWriter(os.Stderr, os.Environ())
 	if o.noColor {
-		stdout.Profile = colorprofile.Ascii
-		stderr.Profile = colorprofile.Ascii
+		// Only ever lower the profile: piped output stays free of any styling.
+		stdout.Profile = min(stdout.Profile, colorprofile.ASCII)
+		stderr.Profile = min(stderr.Profile, colorprofile.ASCII)
 	}
 	a := app{
 		client:      irail.NewClient("trainspot/" + appVersion() + " (https://github.com/PieterLuypaert/trainspot)"),
