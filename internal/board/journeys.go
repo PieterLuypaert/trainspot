@@ -90,7 +90,7 @@ func (v *journeyView) delayColumn(mark string) string {
 
 func (v *journeyView) summary(j irail.Journey) string {
 	dep, arr := j.Departure(), j.Arrival()
-	times := bold.Render(v.clock(dep.Scheduled)) + v.delayMark(dep.Delay, " ") +
+	times := v.day(dep.Scheduled) + bold.Render(v.clock(dep.Scheduled)) + v.delayMark(dep.Delay, " ") +
 		" → " + bold.Render(v.clock(arr.Scheduled)) + v.delayMark(arr.Delay, " ")
 	if j.Cancelled() {
 		return times + "   " + alarm.Render("cancelled")
@@ -146,17 +146,17 @@ func (v *journeyView) stop(s irail.Stop, label string) string {
 }
 
 func (v *journeyView) change(c irail.Change) string {
-	real, planned := int(c.Real/time.Minute), int(c.Planned/time.Minute)
+	real, planned := formatDuration(c.Real), formatDuration(c.Planned)
 	var text string
 	switch {
 	case c.Missed():
-		text = alarm.Render(fmt.Sprintf("change missed by %d min", max(1, -real)))
+		text = alarm.Render("change missed by " + formatDuration(max(time.Minute, -c.Real)))
 	case c.Tight():
-		text = yellow.Render(fmt.Sprintf("change %d min, tight", real))
+		text = yellow.Render("change " + real + ", tight")
 	case real != planned:
-		text = faint.Render(fmt.Sprintf("change %d min instead of %d", real, planned))
+		text = faint.Render("change " + real + " instead of " + planned)
 	default:
-		text = faint.Render(fmt.Sprintf("change %d min", real))
+		text = faint.Render("change " + real)
 	}
 	return strings.Repeat(" ", v.beforeStation()) + text
 }
@@ -177,6 +177,15 @@ func delayText(delay time.Duration) string {
 		return fmt.Sprintf("+%d", late)
 	}
 	return ""
+}
+
+// day names the day of a journey that does not leave today, as at night.
+func (v *journeyView) day(t time.Time) string {
+	today := v.o.Now.In(v.o.Location).Format("2006-01-02")
+	if t.In(v.o.Location).Format("2006-01-02") == today {
+		return ""
+	}
+	return faint.Render(t.In(v.o.Location).Format("Mon 2 Jan")) + "  "
 }
 
 func (v *journeyView) clock(t time.Time) string {

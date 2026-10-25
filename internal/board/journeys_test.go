@@ -78,7 +78,7 @@ func TestJourneysWarnAboutChangesTheDelaysSqueeze(t *testing.T) {
 		}}
 	}
 	cases := map[int][]string{
-		2:  {"change 4 min instead of 6"},
+		2:  {"change 4 min instead of 6 min"},
 		4:  {"change 2 min, tight"},
 		10: {"change missed by 4 min", "1 change   change missed"},
 	}
@@ -89,6 +89,25 @@ func TestJourneysWarnAboutChangesTheDelaysSqueeze(t *testing.T) {
 				t.Errorf("delay %d: no %q in\n%s", delay, want, out)
 			}
 		}
+	}
+}
+
+func TestJourneysNameLongChangesInHoursAndTheDayAtNight(t *testing.T) {
+	j := irail.Journey{Legs: []irail.Leg{
+		ride("IC 522", "", stop("Gent-Sint-Pieters", "23:03", 0, "10"), irail.Stop{Station: "Luik-Guillemins", Scheduled: at("23:03").Add(138 * time.Minute)}),
+		ride("IC 2426", "", irail.Stop{Station: "Luik-Guillemins", Scheduled: at("23:03").Add(337 * time.Minute)}, irail.Stop{Station: "Aarlen", Scheduled: at("23:03").Add(499 * time.Minute)}),
+	}}
+	tomorrow := irail.Journey{Legs: []irail.Leg{
+		ride("IC 1", "", irail.Stop{Station: "Gent-Sint-Pieters", Scheduled: at("06:00").AddDate(0, 0, 1)}, irail.Stop{Station: "Aarlen", Scheduled: at("10:00").AddDate(0, 0, 1)}),
+	}}
+
+	out := renderJourneys([]irail.Journey{j, tomorrow}, 100)
+
+	if !strings.Contains(out, "change 3h19") || !strings.Contains(block(t, out, "23:03"), "23:03 → 07:22   8h19") {
+		t.Errorf("long change or night journey:\n%s", out)
+	}
+	if !strings.Contains(out, "  Mon 26 Oct  06:00 → 10:00") {
+		t.Errorf("tomorrow's journey does not name its day:\n%s", out)
 	}
 }
 
