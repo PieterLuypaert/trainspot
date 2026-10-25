@@ -10,8 +10,8 @@ import (
 	"github.com/PieterLuypaert/trainspot/internal/stations"
 )
 
-// Beside the form go the recent trips, each picked with its number, and
-// the next departures from the station in the From field.
+// Under the form go the recent trips, each picked with its number, and
+// beside it the next departures from the station in the From field.
 
 // recentTrip is a recent trip with its stations found.
 type recentTrip struct{ from, to stations.Station }
@@ -93,18 +93,22 @@ func (m Model) previewFailed() bool {
 	return m.previewErr != nil && !m.loading() && m.fields[0].station != nil && m.fields[0].station.ID == m.previewAsked
 }
 
-// planningSide lists the recent trips, numbered to pick, and the next
-// departures from the station in the From field, in at most rows lines.
-func (m Model) planningSide(width, rows int) []string {
-	lines := []string{""}
-	if len(m.picks) > 0 {
-		lines = append(lines, indent+bold.Render("Recent trips"))
-		for i, t := range m.picks {
-			lines = append(lines, indent+"  "+bold.Render(strconv.Itoa(i+1))+"  "+t.from.Name(m.cfg.Lang)+faint.Render(" → ")+t.to.Name(m.cfg.Lang))
-		}
-		lines = append(lines, "")
+// recentLines list the recent trips under the form, numbered to pick.
+func (m Model) recentLines() []string {
+	if len(m.picks) == 0 {
+		return nil
 	}
-	return append(lines, m.previewLines(width, rows-len(lines))...)
+	lines := []string{"", indent + bold.Render("Recent trips")}
+	for i, t := range m.picks {
+		lines = append(lines, indent+"  "+bold.Render(strconv.Itoa(i+1))+"  "+t.from.Name(m.cfg.Lang)+faint.Render(" → ")+t.to.Name(m.cfg.Lang))
+	}
+	return lines
+}
+
+// planningSide is the next departures from the station in the From field,
+// in at most rows lines, for beside or under the form.
+func (m Model) planningSide(width, rows int) []string {
+	return append([]string{""}, m.previewLines(width, rows-1)...)
 }
 
 // previewLines are the next departures from the station in the From

@@ -113,17 +113,22 @@ func (m Model) departuresTitle() string {
 	return title
 }
 
-// planningBody puts the form on the left and, beside it in a wide window
-// or under it in a narrow one, the recent trips and the next departures
-// from the station in the From field.
+// planningBody puts the form with the recent trips under it on the left
+// and, beside it in a wide window or under it in a narrow one, the next
+// departures from the station in the From field. The departures take the
+// larger part, so the board keeps its columns.
 func (m Model) planningBody(width, room int) []string {
-	if width >= twoPanesWidth {
-		formWidth := width / 2
-		return sideBySide(m.formLines(formWidth), m.planningSide(width-formWidth-lipgloss.Width(divider), room), formWidth)
+	if width < twoPanesWidth {
+		form := append(m.formLines(width), m.recentLines()...)
+		return append(form, m.planningSide(width, room-len(form))...)
 	}
-	form := m.formLines(width)
-	return append(form, m.planningSide(width, room-len(form))...)
+	formWidth := max(minFormWidth, width*2/5)
+	form := append(m.formLines(formWidth), m.recentLines()...)
+	return sideBySide(form, m.planningSide(width-formWidth-lipgloss.Width(divider), room), formWidth)
 }
+
+// minFormWidth is the narrowest the form gets beside the departures.
+const minFormWidth = 40
 
 func (m Model) formLines(width int) []string {
 	body := []string{""}

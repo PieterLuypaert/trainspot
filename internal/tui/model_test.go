@@ -873,20 +873,28 @@ func TestTheFormShowsTheNextDeparturesFromTheChosenStation(t *testing.T) {
 	}
 }
 
-func TestAWideFormHasItsSidePaneBesideIt(t *testing.T) {
+func TestAWideFormHasTheDeparturesBesideItAndTheRecentTripsUnderIt(t *testing.T) {
 	h := twoRecentTrips(t)
 	h.send(tea.WindowSizeMsg{Width: 130, Height: 30})
 
+	if from := screenRow(h, "From  Gent-Sint-Pieters"); !strings.Contains(from, "Next from Gent-Sint-Pieters") {
+		t.Errorf("the departures are not beside the form: %q", from)
+	}
+	recent := strings.TrimPrefix(screenRow(h, "Recent trips"), "│")
+	if divider := strings.Index(recent, "│"); divider == strings.LastIndex(recent, "│") || strings.Index(recent, "Recent trips") > divider {
+		t.Errorf("the recent trips are not under the form, left of the divider: %q", recent)
+	}
+}
+
+// screenRow is the last row of the screen that holds text.
+func screenRow(h *harness, text string) string {
 	var row string
 	for _, l := range strings.Split(h.screen(), "\n") {
-		if strings.Contains(l, "From  Gent-Sint-Pieters") {
+		if strings.Contains(l, text) {
 			row = l
 		}
 	}
-	if !strings.Contains(row, "Recent trips") {
-		t.Errorf("the recent trips are not beside the form: %q", row)
-	}
-	h.wantOnScreen("Next from Gent-Sint-Pieters")
+	return row
 }
 
 // sendOnly updates the model without running the commands it returns, as
