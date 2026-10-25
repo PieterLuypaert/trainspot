@@ -461,18 +461,19 @@ func (m Model) routeTitle() string {
 // routeBody returns every stop of the chosen train's run, and the legend
 // and status line that must stay in view.
 func (m Model) routeBody(width int) (main, tail []string) {
+	r := m.routes[departureKey(m.routeOf)].route
 	switch {
-	case len(m.route.Stops) == 0 && m.loading():
+	case len(r.Stops) == 0 && m.loading():
 		return []string{"", indent + faint.Render("Looking up the train's route…")}, nil
-	case len(m.route.Stops) == 0 && m.err != nil:
+	case len(r.Stops) == 0 && m.err != nil:
 		return []string{"", indent + alarm.Render("Could not get the train's route: "+m.err.Error()), indent + faint.Render("Press r to try again.")}, nil
-	case len(m.route.Stops) < 2:
+	case len(r.Stops) < 2:
 		return []string{"", indent + "iRail has no route for this train."}, nil
 	}
 	mark := board.Mark{Station: m.boardStation(), At: m.routeOf.Scheduled}
-	lines, legend := board.RouteStops(m.route, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}, mark)
-	tail = m.tail(legend.Lines(width), board.Footer(m.route.Updated, m.cfg.Location))
-	return append([]string{"", indent + board.RouteSummary(m.route), ""}, lines...), tail
+	lines, legend := board.RouteStops(r, board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}, mark)
+	tail = m.tail(legend.Lines(width), board.Footer(r.Updated, m.cfg.Location))
+	return append([]string{"", indent + board.RouteSummary(r), ""}, lines...), tail
 }
 
 // boardStation is the name of the station whose board is on hand, as iRail

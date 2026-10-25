@@ -91,10 +91,11 @@ type Model struct {
 	// boardChoice is the chosen departure and boardScroll the first one
 	// shown.
 	boardChoice, boardScroll int
-	// route is the run of routeOf, the departure chosen on the board.
-	route   irail.Route
+	// routeOf is the departure whose run the route screen shows.
 	routeOf irail.Departure
-	routeAt time.Time
+	// routes are the runs fetched for the departures on the board, for the
+	// route screen and the pane beside the board alike.
+	routes map[string]knownRoute
 
 	// waiting is the id of the fetch the screen waits for, or 0. An answer
 	// to any other fetch, such as one for a screen the user has left, is
@@ -124,9 +125,6 @@ type Model struct {
 	previewAsked   string
 	previewAskedAt time.Time
 	previewErr     error
-	// peeks are the routes fetched for the pane beside the board, by
-	// departure.
-	peeks map[string]peeked
 }
 
 type tripMsg struct {
@@ -146,7 +144,7 @@ type boardMsg struct {
 type tickMsg time.Time
 
 func New(cfg Config) Model {
-	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}, peeks: map[string]peeked{}}
+	m := Model{cfg: cfg, fields: [2]field{{label: "From"}, {label: "To"}}, routes: map[string]knownRoute{}}
 	m.setRecent(cfg.Recent)
 	if len(cfg.Recent) == 0 {
 		return m
@@ -216,7 +214,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		return m, m.settle()
+		return m, m.settle(false)
 	case tickMsg:
 		return m.refresh()
 	case tripMsg:
@@ -229,10 +227,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.gotPreview(msg)
 		} else {
 			m.gotBoard(msg)
-			return m, m.settle()
+			return m, m.settle(true)
 		}
 	case settleMsg:
-		return m, m.peek(msg)
+		peek := m.peek(msg)
+		return m, peek
 	case peekMsg:
 		m.gotPeek(msg)
 	case routeMsg:
@@ -400,7 +399,7 @@ func (m Model) startTrip(from, to stations.Station) (tea.Model, tea.Cmd) {
 func (m *Model) setTrip(from, to stations.Station) {
 	m.from, m.to = from, to
 	m.trip, m.tripAt, m.selected = irail.Trip{}, time.Time{}, 0
-	m.board, m.boardAt = irail.Liveboard{}, time.Time{}
+	m.board, m.boardAt, m.routes = irail.Liveboard{}, time.Time{}, map[string]knownRoute{}
 	m.err, m.note = nil, ""
 	m.fields[0].pick(from, m.cfg.Lang)
 	m.fields[1].pick(to, m.cfg.Lang)
@@ -421,7 +420,7 @@ func (m Model) toJourneys() (tea.Model, tea.Cmd) {
 func (m Model) toDepartures() (tea.Model, tea.Cmd) {
 	m.screen, m.waiting, m.err, m.note = departures, 0, nil, ""
 	if !m.stale(m.boardAt) {
-		return m, m.settle()
+		return m, m.settle(false)
 	}
 	fetch := m.fetchBoard()
 	return m, fetch
@@ -482,10 +481,10 @@ func (m Model) departuresKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.fetchAgain()
 	case "up", "k":
 		m.boardChoice = max(0, m.boardChoice-1)
-		return m, m.settle()
+		return m, m.settle(false)
 	case "down", "j":
 		m.boardChoice = max(0, min(len(m.board.Departures)-1, m.boardChoice+1))
-		return m, m.settle()
+		return m, m.settle(false)
 	case "enter", "right", "l":
 		if d, ok := m.chosenDeparture(); ok {
 			return m.toRoute(d)
@@ -592,5 +591,6 @@ func (m *Model) gotBoard(msg boardMsg) {
 	if msg.err == nil {
 		m.keepBoardChoice(msg.board)
 		m.board, m.boardAt = msg.board, m.cfg.Now()
+		m.forgetRoutes()
 	}
 }

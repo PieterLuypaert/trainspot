@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"maps"
 	"strconv"
 	"time"
 
@@ -14,11 +15,18 @@ import (
 // In a wide window the departure board shows the chosen train's route
 // beside it. A route is fetched once the choice has rested for a moment,
 // so running down the board with the arrow keys does not ask iRail about
-// every train on the way, and routes already fetched are kept.
+// every train on the way. The routes fetched are kept for the pane and the
+// route screen alike, and the chosen one is fetched again with the board.
 
 const settleDelay = 400 * time.Millisecond
 
-type settleMsg struct{ key string }
+// settleMsg says the choice may have rested on the departure key; again
+// asks for its route even when one is on hand, as when the board itself
+// was fetched again.
+type settleMsg struct {
+	key   string
+	again bool
+}
 
 type peekMsg struct {
 	key   string
@@ -26,11 +34,15 @@ type peekMsg struct {
 	err   error
 }
 
-// peeked is a route fetched for the pane beside the board.
-type peeked struct {
-	route irail.Route
-	at    time.Time
-	err   error
+// knownRoute is a train's route as last fetched: the route, when it came,
+// what went wrong with the last fetch, when that fetch was asked for, and
+// whether the pane's fetch is on its way.
+type knownRoute struct {
+	route  irail.Route
+	at     time.Time
+	err    error
+	tried  time.Time
+	asking bool
 }
 
 func departureKey(d irail.Departure) string {
@@ -60,7 +72,7 @@ func boardWidth(width int) int {
 }
 
 // settle waits for the choice to rest before its route is fetched.
-func (m Model) settle() tea.Cmd {
+func (m Model) settle(again bool) tea.Cmd {
 	d, ok := m.chosenDeparture()
 	if !ok || m.screen != departures || !m.wideBoard() {
 		return nil
@@ -69,47 +81,87 @@ func (m Model) settle() tea.Cmd {
 	if delay == 0 {
 		delay = settleDelay
 	}
-	return tea.Tick(delay, func(time.Time) tea.Msg { return settleMsg{key} })
+	return tea.Tick(delay, func(time.Time) tea.Msg { return settleMsg{key: key, again: again} })
 }
 
 // peek fetches the route of the chosen departure once the choice has
-// rested on it, unless a fresh one is on hand.
-func (m Model) peek(msg settleMsg) tea.Cmd {
+// rested on it, unless it is on its way or was asked for less than a
+// minute ago and the board was not fetched again since.
+func (m *Model) peek(msg settleMsg) tea.Cmd {
 	d, ok := m.chosenDeparture()
-	if !ok || m.screen != departures || departureKey(d) != msg.key {
+	if !ok || m.screen != departures || !m.wideBoard() || departureKey(d) != msg.key {
 		return nil
 	}
-	if p, ok := m.peeks[msg.key]; ok && !m.stale(p.at) {
+	known, ok := m.routes[msg.key]
+	if known.asking || ok && !msg.again && !m.stale(known.tried) {
 		return nil
 	}
-	source, station, lang, loc := m.cfg.Source, m.boardStation(), m.cfg.Lang, m.cfg.Location
+	known.asking, known.tried = true, m.cfg.Now()
+	m.routes[msg.key] = known
+	ask := m.askRoute(d)
 	return func() tea.Msg {
-		route, err := source.RouteThrough(context.Background(), d.Vehicle, station, d.Scheduled.In(loc), lang)
+		route, err := ask()
 		return peekMsg{key: msg.key, route: route, err: err}
 	}
 }
 
+// askRoute fetches the run of departure d that stops at the board's
+// station.
+func (m Model) askRoute(d irail.Departure) func() (irail.Route, error) {
+	source, station, lang, loc := m.cfg.Source, m.boardStation(), m.cfg.Lang, m.cfg.Location
+	return func() (irail.Route, error) {
+		return source.RouteThrough(context.Background(), d.Vehicle, station, d.Scheduled.In(loc), lang)
+	}
+}
+
 func (m *Model) gotPeek(msg peekMsg) {
-	m.peeks[msg.key] = peeked{route: msg.route, at: m.cfg.Now(), err: msg.err}
+	m.keepRoute(msg.key, msg.route, msg.err)
+}
+
+// keepRoute takes the answer to a route fetch. A failed one keeps the
+// route already on hand.
+func (m *Model) keepRoute(key string, route irail.Route, err error) {
+	known := m.routes[key]
+	known.asking, known.err = false, err
+	if err == nil {
+		known.route, known.at = route, m.cfg.Now()
+	}
+	m.routes[key] = known
+}
+
+// forgetRoutes drops the routes of the trains that have left the board.
+func (m *Model) forgetRoutes() {
+	onBoard := map[string]bool{}
+	for _, d := range m.board.Departures {
+		onBoard[departureKey(d)] = true
+	}
+	maps.DeleteFunc(m.routes, func(key string, _ knownRoute) bool { return !onBoard[key] })
 }
 
 // peekLines are the chosen train's route for the pane beside the board, in
-// at most rows lines.
+// at most rows lines, with the legend for what shows of it.
 func (m Model) peekLines(width, rows int) []string {
 	d, ok := m.chosenDeparture()
 	if !ok {
 		return nil
 	}
 	lines := []string{"", indent + bold.Render(d.Train) + faint.Render(" to "+d.Destination)}
-	p, ok := m.peeks[departureKey(d)]
+	known := m.routes[departureKey(d)]
 	switch {
-	case !ok:
+	case len(known.route.Stops) == 0 && known.err != nil && !known.asking:
+		return append(lines, wrap("Could not get its route: "+known.err.Error(), width, alarm)...)
+	case known.at.IsZero():
 		return append(lines, indent+faint.Render("Looking up its route…"))
-	case p.err != nil:
-		return append(lines, indent+alarm.Render("Could not get its route: "+p.err.Error()))
+	case len(known.route.Stops) < 2:
+		return append(lines, indent+"iRail has no route for this train.")
 	}
 	o := board.JourneyOptions{Width: width, Now: m.cfg.Now(), Location: m.cfg.Location}
-	stops, _ := board.RouteStops(p.route, o, board.Mark{Station: m.boardStation(), At: d.Scheduled})
-	lines = append(append(lines, indent+board.RouteSummary(p.route), ""), stops...)
-	return cut(lines, rows, "enter shows the whole run")
+	stops, legend := board.RouteStops(known.route, o, board.Mark{Station: m.boardStation(), At: d.Scheduled})
+	var tail []string
+	if known.err != nil {
+		tail = wrap("could not refresh its route: "+known.err.Error(), width, alarm)
+	}
+	lines = append(append(lines, indent+board.RouteSummary(known.route), ""), stops...)
+	lines = cut(lines, rows-len(legend.Lines(width))-len(tail)-1, "enter shows the whole run")
+	return append(append(append(lines, ""), legend.In(lines).Lines(width)...), tail...)
 }
